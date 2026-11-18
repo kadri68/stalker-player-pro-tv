@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 package com.kadri.stalkerplayerpro.core.tv
 
 import androidx.activity.compose.BackHandler
