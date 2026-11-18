@@ -281,7 +281,7 @@ fun SettingsScreen(
                     ClassicSettingsRow(
                         icon = Icons.Default.Info,
                         title = if (isAr) "حول التطبيق ومعلومات المطور" else "About App & Developer",
-                        valueText = "v1.2.0",
+                        valueText = "v1.4.0",
                         isAr = isAr,
                         onClick = { showAboutDialog = true }
                     )
@@ -392,7 +392,27 @@ fun SettingsScreen(
             TvModalDialog(
                 title = if (isAr) "إعدادات الساعة الرقمية" else "Digital Clock Settings",
                 onDismiss = { showClockDialog = false },
-                maxWidth = 460.dp
+                maxWidth = 460.dp,
+                scrollableBody = true,
+                footer = {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Box(
+                            modifier = Modifier
+                                .tvFocusItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                    onClick = { showClockDialog = false }
+                                )
+                                .padding(horizontal = 24.dp, vertical = 9.dp)
+                        ) {
+                            Text(
+                                text = if (isAr) "حفظ" else "Save",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
             ) { firstRequester ->
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -441,7 +461,6 @@ fun SettingsScreen(
                                     },
                                     onClick = {
                                         scope.launch { settingsStore.updateClockCorner(cId) }
-                                        showClockDialog = false
                                     }
                                 )
                                 .padding(12.dp),
@@ -482,8 +501,60 @@ fun SettingsScreen(
             TvModalDialog(
                 title = if (isAr) "إعدادات الترجمة (OpenSubtitles v1 & Subdl)" else "Subtitles API Settings",
                 onDismiss = { showSubApiDialog = false },
-                maxWidth = 580.dp
-            ) { firstRequester ->
+                maxWidth = 580.dp,
+                scrollableBody = true,
+                footer = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .tvFocusItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    onClick = { showSubApiDialog = false }
+                                )
+                                .padding(horizontal = 18.dp, vertical = 9.dp)
+                        ) {
+                            Text(
+                                text = if (isAr) "إلغاء" else "Cancel",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .tvFocusItem(
+                                    enabled = !isLoggingIn,
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                    onClick = {
+                                        scope.launch {
+                                            isLoggingIn = true
+                                            val token = SubtitleRepository.loginOpenSubtitles(osKey, osUser, osPass).orEmpty()
+                                            settingsStore.updateSubtitleAccounts(osKey, osUser, osPass, token, subdlKey)
+                                            isLoggingIn = false
+                                            showSubApiDialog = false
+                                            Toast.makeText(
+                                                context,
+                                                if (isAr) "تم حفظ إعدادات الترجمة" else "Subtitle settings saved",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                )
+                                .padding(horizontal = 24.dp, vertical = 9.dp)
+                        ) {
+                            Text(
+                                text = if (isAr) "حفظ" else "Save",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            ) { _ ->
                 OutlinedTextField(
                     value = osKey,
                     onValueChange = { osKey = it },
@@ -516,39 +587,6 @@ fun SettingsScreen(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(14.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Box(
-                        modifier = Modifier
-                            .tvFocusItem(
-                                focusRequester = firstRequester,
-                                enabled = !isLoggingIn,
-                                shape = RoundedCornerShape(10.dp),
-                                unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                                onClick = {
-                                    scope.launch {
-                                        isLoggingIn = true
-                                        val token = SubtitleRepository.loginOpenSubtitles(osKey, osUser, osPass).orEmpty()
-                                        settingsStore.updateSubtitleAccounts(osKey, osUser, osPass, token, subdlKey)
-                                        isLoggingIn = false
-                                        showSubApiDialog = false
-                                        Toast.makeText(
-                                            context,
-                                            if (isAr) "تم حفظ إعدادات الترجمة" else "Subtitle settings saved",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
-                            )
-                            .padding(horizontal = 24.dp, vertical = 10.dp)
-                    ) {
-                        Text(
-                            text = if (isAr) "حفظ وتسجيل الدخول" else "Save & Login",
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-                }
             }
         }
 
@@ -556,8 +594,28 @@ fun SettingsScreen(
             TvModalDialog(
                 title = if (isAr) "حول التطبيق" else "About Application",
                 onDismiss = { showAboutDialog = false },
-                maxWidth = 500.dp
-            ) { firstRequester ->
+                maxWidth = 500.dp,
+                scrollableBody = true,
+                footer = {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        Box(
+                            modifier = Modifier
+                                .tvFocusItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                    onClick = { showAboutDialog = false }
+                                )
+                                .padding(horizontal = 28.dp, vertical = 9.dp)
+                        ) {
+                            Text(
+                                text = if (isAr) "إغلاق" else "Close",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            ) { _ ->
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -591,24 +649,6 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.secondary,
                         textAlign = TextAlign.Center
                     )
-
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Box(
-                        modifier = Modifier
-                            .tvFocusItem(
-                                focusRequester = firstRequester,
-                                shape = RoundedCornerShape(10.dp),
-                                unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                                onClick = { showAboutDialog = false }
-                            )
-                            .padding(horizontal = 28.dp, vertical = 10.dp)
-                    ) {
-                        Text(
-                            text = if (isAr) "إغلاق" else "Close",
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
                 }
             }
         }

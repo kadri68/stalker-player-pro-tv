@@ -39,12 +39,14 @@ import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -68,6 +71,7 @@ import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.PortalEntity
 import com.kadri.stalkerplayerpro.data.model.ProtocolType
+import com.kadri.stalkerplayerpro.data.network.M3uStreamParser
 import com.kadri.stalkerplayerpro.data.network.SmartMultiParser
 import com.kadri.stalkerplayerpro.data.network.StalkerApiClient
 import com.kadri.stalkerplayerpro.data.network.XtreamApiClient
@@ -78,9 +82,11 @@ import com.kadri.stalkerplayerpro.ui.components.TvMenuOption
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
 import com.kadri.stalkerplayerpro.ui.components.TvTextInputDialog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 
 @Composable
 fun PortalsScreen(
@@ -93,7 +99,7 @@ fun PortalsScreen(
     val scope = rememberCoroutineScope()
     val portals by dao.observePortals().collectAsState(initial = emptyList())
 
-    var selectedProtocolFilter by remember { mutableStateOf("ALL") } // ALL, STALKER, XTREAM, M3U
+    var selectedProtocolFilter by remember { mutableStateOf("ALL") }
     var showAddDialog by remember { mutableStateOf(false) }
     var showSmartParserDialog by remember { mutableStateOf(false) }
     var smartInitialText by remember { mutableStateOf("") }
@@ -117,6 +123,13 @@ fun PortalsScreen(
             "XTREAM" -> xtreamList
             "M3U" -> m3uList
             else -> portals
+        }
+    }
+
+    LaunchedEffect(displayedPortals.isNotEmpty()) {
+        if (displayedPortals.isNotEmpty() && !anyDialogOpen) {
+            delay(80)
+            runCatching { initialContentFocusRequester.requestFocus() }
         }
     }
 
@@ -171,6 +184,56 @@ fun PortalsScreen(
         }
     }
 
+    val m3uFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                isCheckingAll = true
+                val importedEntity = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val dir = File(context.filesDir, "m3u_playlists").apply { if (!exists()) mkdirs() }
+                        val savedFile = File(dir, "playlist_${System.currentTimeMillis()}.m3u")
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            savedFile.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        val (_, channels) = M3uStreamParser.parseFromUrl(savedFile.absolutePath, 0L)
+                        if (channels.isEmpty()) {
+                            savedFile.delete()
+                            null
+                        } else {
+                            val rawName = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.') ?: "M3U"
+                            PortalEntity(
+                                name = SmartMultiParser.shortPortalName(rawName, "M3U"),
+                                protocol = "M3U",
+                                url = savedFile.absolutePath,
+                                statusText = "Active (${channels.size} CH)"
+                            )
+                        }
+                    }.getOrNull()
+                }
+                isCheckingAll = false
+                if (importedEntity != null) {
+                    val newId = dao.insertPortal(importedEntity)
+                    if (portals.isEmpty()) {
+                        dao.setActivePortal(newId)
+                    }
+                    Toast.makeText(
+                        context,
+                        if (isAr) "تم استيراد ملف M3U كقائمة قنوات واحدة (${importedEntity.statusText})" else "Imported M3U playlist (${importedEntity.statusText})",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        if (isAr) "ملف M3U فارغ أو غير صالح" else "Invalid or empty M3U file",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
     val qrImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -200,7 +263,6 @@ fun PortalsScreen(
                 .blockFocusWhen(anyDialogOpen)
                 .padding(12.dp)
         ) {
-            // صف الأدوات العلوي
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -219,13 +281,15 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "إضافة حساب" else "Add Account",
                     icon = Icons.Default.Add,
-                    focusRequester = initialContentFocusRequester,
+                    focusRequester = if (displayedPortals.isEmpty()) initialContentFocusRequester else null,
+                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = { showAddDialog = true }
                 )
 
                 ActionChipButton(
                     label = if (isAr) "لصق ذكي" else "Smart Paste",
                     icon = Icons.Default.ContentPaste,
+                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         smartInitialText = readClipboardText()
                         showSmartParserDialog = true
@@ -235,6 +299,7 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "المحلل الذكي" else "Smart Parser",
                     icon = Icons.Default.AutoFixHigh,
+                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         smartInitialText = ""
                         showSmartParserDialog = true
@@ -242,8 +307,21 @@ fun PortalsScreen(
                 )
 
                 ActionChipButton(
+                    label = if (isAr) "ملف M3U" else "Import M3U",
+                    icon = Icons.Default.VideoLibrary,
+                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
+                    onClick = {
+                        val ok = runCatching { m3uFileLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "*/*")) }.isSuccess
+                        if (!ok) {
+                            Toast.makeText(context, if (isAr) "متصفح الملفات غير متوفر" else "File picker unavailable", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+
+                ActionChipButton(
                     label = if (isAr) "ملف TXT" else "Import TXT",
                     icon = Icons.Default.FileOpen,
+                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         val ok = runCatching { txtImportLauncher.launch(arrayOf("text/plain", "*/*")) }.isSuccess
                         if (!ok) {
@@ -255,6 +333,7 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = "QR",
                     icon = Icons.Default.QrCodeScanner,
+                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         val ok = runCatching { qrImportLauncher.launch(arrayOf("image/*")) }.isSuccess
                         if (!ok) {
@@ -266,6 +345,7 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "فحص الكل" else "Check All",
                     icon = Icons.Default.CheckCircle,
+                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         if (!isCheckingAll && portals.isNotEmpty()) {
                             scope.launch {
@@ -288,6 +368,7 @@ fun PortalsScreen(
                     },
                     icon = Icons.Default.Delete,
                     isDestructive = multiSelectMode && selectedIds.isNotEmpty(),
+                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         if (!multiSelectMode) {
                             multiSelectMode = true
@@ -306,7 +387,6 @@ fun PortalsScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // شريط تصنيف البوابات (الكل | Stalker | Xtream | M3U)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -323,6 +403,11 @@ fun PortalsScreen(
                     val active = selectedProtocolFilter == code
                     Box(
                         modifier = Modifier
+                            .then(
+                                if (displayedPortals.isNotEmpty()) {
+                                    Modifier.focusProperties { down = initialContentFocusRequester }
+                                } else Modifier
+                            )
                             .tvFocusItem(
                                 shape = RoundedCornerShape(8.dp),
                                 unfocusedBackgroundColor = if (active) {
@@ -391,6 +476,7 @@ fun PortalsScreen(
                             isLast = index == displayedPortals.lastIndex,
                             multiSelectMode = multiSelectMode,
                             isSelected = isSelected,
+                            cardFocusRequester = if (index == 0) initialContentFocusRequester else null,
                             onActivate = {
                                 if (multiSelectMode) {
                                     selectedIds = if (isSelected) selectedIds - portal.id else selectedIds + portal.id
@@ -523,10 +609,6 @@ fun PortalsScreen(
     }
 }
 
-/**
- * بطاقة البوابة: تعرض الاسم المختصر (5 حروف) والنوع وتاريخ الصلاحية فقط
- * دون إظهار الهوست أو الماك أو العنوان
- */
 @Composable
 private fun PortalCardItem(
     portal: PortalEntity,
@@ -535,6 +617,7 @@ private fun PortalCardItem(
     isLast: Boolean,
     multiSelectMode: Boolean,
     isSelected: Boolean,
+    cardFocusRequester: FocusRequester? = null,
     onActivate: () -> Unit,
     onToggleFavorite: () -> Unit,
     onMoveUp: () -> Unit,
@@ -567,6 +650,7 @@ private fun PortalCardItem(
             modifier = Modifier
                 .weight(1f)
                 .tvFocusItem(
+                    focusRequester = cardFocusRequester,
                     shape = RoundedCornerShape(10.dp),
                     onLongClick = onOpenMenu,
                     onMenuClick = onOpenMenu,
@@ -613,7 +697,7 @@ private fun PortalCardItem(
                         LtrText(
                             text = portal.statusText,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (portal.statusText.equals("Active", true) || portal.statusText.equals("Ready", true)) {
+                            color = if (portal.statusText.startsWith("Active", true) || portal.statusText.equals("Ready", true)) {
                                 extraColors.badgeSuccess
                             } else {
                                 extraColors.badgeWarning
@@ -693,6 +777,7 @@ private fun ActionChipButton(
     label: String,
     icon: ImageVector,
     focusRequester: FocusRequester? = null,
+    downTargetRequester: FocusRequester? = null,
     isDestructive: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -700,6 +785,11 @@ private fun ActionChipButton(
     val fg = if (isDestructive) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = Modifier
+            .then(
+                if (downTargetRequester != null) {
+                    Modifier.focusProperties { down = downTargetRequester }
+                } else Modifier
+            )
             .tvFocusItem(
                 focusRequester = focusRequester,
                 shape = RoundedCornerShape(10.dp),
@@ -731,7 +821,63 @@ private fun AddPortalDialog(
     TvModalDialog(
         title = if (isAr) "إضافة حساب جديد" else "Add New Account",
         onDismiss = onDismiss,
-        maxWidth = 560.dp
+        maxWidth = 560.dp,
+        scrollableBody = true,
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = onDismiss
+                        )
+                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "إلغاء" else "Cancel",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = {
+                                if (url.isNotBlank() && url != "http://") {
+                                    val shortName = SmartMultiParser.shortPortalName(
+                                        name.ifBlank { url },
+                                        selectedProtocol.code
+                                    )
+                                    onSave(
+                                        PortalEntity(
+                                            name = shortName,
+                                            protocol = selectedProtocol.code,
+                                            url = url.trim(),
+                                            mac = mac.trim().uppercase(),
+                                            username = username.trim(),
+                                            password = password.trim()
+                                        )
+                                    )
+                                    onDismiss()
+                                }
+                            }
+                        )
+                        .padding(horizontal = 24.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "حفظ وفحص" else "Save & Check",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
     ) { firstRequester ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ProtocolType.entries.forEachIndexed { idx, proto ->
@@ -806,43 +952,6 @@ private fun AddPortalDialog(
             }
             ProtocolType.M3U -> Unit
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Box(
-                modifier = Modifier
-                    .tvFocusItem(
-                        shape = RoundedCornerShape(10.dp),
-                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                        onClick = {
-                            if (url.isNotBlank() && url != "http://") {
-                                val shortName = SmartMultiParser.shortPortalName(
-                                    name.ifBlank { url },
-                                    selectedProtocol.code
-                                )
-                                onSave(
-                                    PortalEntity(
-                                        name = shortName,
-                                        protocol = selectedProtocol.code,
-                                        url = url.trim(),
-                                        mac = mac.trim().uppercase(),
-                                        username = username.trim(),
-                                        password = password.trim()
-                                    )
-                                )
-                                onDismiss()
-                            }
-                        }
-                    )
-                    .padding(horizontal = 22.dp, vertical = 9.dp)
-            ) {
-                Text(
-                    text = if (isAr) "حفظ وفحص" else "Save & Check",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            }
-        }
     }
 }
 
@@ -864,7 +973,79 @@ private fun SmartParserDialog(
     TvModalDialog(
         title = if (isAr) "المحلل واللصق الذكي (Stalker / Xtream / M3U)" else "Smart Multi-Parser & Paste",
         onDismiss = onDismiss,
-        maxWidth = 640.dp
+        maxWidth = 640.dp,
+        scrollableBody = true,
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isScanning) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                }
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = onDismiss
+                        )
+                        .padding(horizontal = 16.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "إغلاق" else "Close",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            enabled = !isScanning,
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = {
+                                scope.launch {
+                                    isScanning = true
+                                    val breakdown = SmartMultiParser.analyzeText(rawText)
+                                    val working = SmartMultiParser.filterWorkingAccounts(breakdown.allExtracted)
+                                    isScanning = false
+                                    if (working.isNotEmpty()) {
+                                        val stkOk = working.count { it.protocol == "STALKER" }
+                                        val xtOk = working.count { it.protocol == "XTREAM" }
+                                        val m3uOk = working.count { it.protocol == "M3U" }
+                                        Toast.makeText(
+                                            context,
+                                            if (isAr) {
+                                                "تم حفظ ${working.size} شغال: Stalker($stkOk) | Xtream($xtOk) | M3U($m3uOk)"
+                                            } else {
+                                                "Saved ${working.size} working: Stalker($stkOk) | Xtream($xtOk) | M3U($m3uOk)"
+                                            },
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        onImportWorking(working)
+                                        onDismiss()
+                                    } else {
+                                        resultSummary = if (isAr) {
+                                            "المكتشف: Stalker(${breakdown.stalkerCount}), Xtream(${breakdown.xtreamCount}), M3U(${breakdown.m3uCount}) — الشغال: 0"
+                                        } else {
+                                            "Detected: Stalker(${breakdown.stalkerCount}), Xtream(${breakdown.xtreamCount}), M3U(${breakdown.m3uCount}) — Working: 0"
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                        .padding(horizontal = 20.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "فحص وحفظ الشغال" else "Verify & Save Working",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
     ) { firstRequester ->
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -880,6 +1061,7 @@ private fun SmartParserDialog(
             Row(
                 modifier = Modifier
                     .tvFocusItem(
+                        focusRequester = firstRequester,
                         shape = RoundedCornerShape(8.dp),
                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                         onClick = {
@@ -911,8 +1093,8 @@ private fun SmartParserDialog(
             onValueChange = { rawText = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(120.dp),
-            placeholder = { Text("Stalker (URL + MAC) / Xtream (Host, User, Pass) / M3U...") }
+                .height(110.dp),
+            placeholder = { Text("Stalker (URL + MACs) / Xtream (live/user/pass or get.php) / M3U...") }
         )
 
         if (resultSummary.isNotBlank()) {
@@ -922,64 +1104,6 @@ private fun SmartParserDialog(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary
             )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (isScanning) {
-                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(10.dp))
-            }
-            Box(
-                modifier = Modifier
-                    .tvFocusItem(
-                        focusRequester = firstRequester,
-                        enabled = !isScanning,
-                        shape = RoundedCornerShape(10.dp),
-                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                        onClick = {
-                            scope.launch {
-                                isScanning = true
-                                val breakdown = SmartMultiParser.analyzeText(rawText)
-                                val working = SmartMultiParser.filterWorkingAccounts(breakdown.allExtracted)
-                                isScanning = false
-                                if (working.isNotEmpty()) {
-                                    val stkOk = working.count { it.protocol == "STALKER" }
-                                    val xtOk = working.count { it.protocol == "XTREAM" }
-                                    val m3uOk = working.count { it.protocol == "M3U" }
-                                    Toast.makeText(
-                                        context,
-                                        if (isAr) {
-                                            "تمت إضافة ${working.size} شغال: Stalker($stkOk) | Xtream($xtOk) | M3U($m3uOk)"
-                                        } else {
-                                            "Added ${working.size} working: Stalker($stkOk) | Xtream($xtOk) | M3U($m3uOk)"
-                                        },
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                    onImportWorking(working)
-                                    onDismiss()
-                                } else {
-                                    resultSummary = if (isAr) {
-                                        "المكتشف: Stalker(${breakdown.stalkerCount}), Xtream(${breakdown.xtreamCount}), M3U(${breakdown.m3uCount}) — الشغال: 0"
-                                    } else {
-                                        "Detected: Stalker(${breakdown.stalkerCount}), Xtream(${breakdown.xtreamCount}), M3U(${breakdown.m3uCount}) — Working: 0"
-                                    }
-                                }
-                            }
-                        }
-                    )
-                    .padding(horizontal = 20.dp, vertical = 9.dp)
-            ) {
-                Text(
-                    text = if (isAr) "فحص وإضافة الحسابات الشغالة" else "Verify & Import Working",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            }
         }
     }
 }

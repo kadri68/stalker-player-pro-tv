@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,14 +22,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
@@ -59,7 +59,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -84,6 +86,7 @@ import com.kadri.stalkerplayerpro.data.model.SubtitleCue
 import com.kadri.stalkerplayerpro.data.model.SubtitleSearchResult
 import com.kadri.stalkerplayerpro.data.network.StalkerApiClient
 import com.kadri.stalkerplayerpro.data.network.SubtitleRepository
+import com.kadri.stalkerplayerpro.data.network.XtreamApiClient
 import com.kadri.stalkerplayerpro.ui.components.TvActionMenuDialog
 import com.kadri.stalkerplayerpro.ui.components.TvMenuOption
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
@@ -102,7 +105,6 @@ fun TvPlayerScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val extraColors = LocalTvExtraColors.current
 
     var currentRequest by remember { mutableStateOf(initialRequest) }
     var currentChannelIdx by remember { mutableIntStateOf(initialRequest.currentChannelIndex) }
@@ -111,8 +113,8 @@ fun TvPlayerScreen(
 
     val controller = remember { DualPlayerController(context, settings.preferredAudioLang) }
     val rootFocusRequester = remember { FocusRequester() }
+    val bottomBarInitialFocusRequester = remember { FocusRequester() }
 
-    // حالات واجهة التحكم والقوائم
     var showControls by remember { mutableStateOf(true) }
     var controlInteractTick by remember { mutableIntStateOf(0) }
     var showChannelDrawer by remember { mutableStateOf(false) }
@@ -122,36 +124,32 @@ fun TvPlayerScreen(
     var showSubtitleStyleDialog by remember { mutableStateOf(false) }
     var showAudioTracksDialog by remember { mutableStateOf(false) }
 
-    // حالة إدخال أرقام القنوات (0-9)
     var digitBuffer by remember { mutableStateOf("") }
 
-    // حالة الترجمة الخارجية والإزاحة المستقلة للترجمة فقط
     var subtitleCues by remember { mutableStateOf<List<SubtitleCue>>(emptyList()) }
     var subtitleOffsetMs by remember { mutableLongStateOf(0L) }
     var subColor by remember { mutableLongStateOf(settings.subTextColor) }
     var subSizeSp by remember { mutableFloatStateOf(settings.subFontSizeSp) }
     var subBgAlpha by remember { mutableFloatStateOf(settings.subBgAlpha) }
 
-    // حالة الساعة الرقمية
     var clockText by remember { mutableStateOf(LocaleUtils.formatClock()) }
 
     val anyOverlayModal = showChannelDrawer || showQuickMenu || showSubtitleSearchDialog ||
             showSubtitleStyleDialog || showAudioTracksDialog
 
-    // تشغيل البث وحفظ التقدم عند الخروج
     LaunchedEffect(currentRequest.itemId, currentRequest.streamCmdOrUrl) {
         subtitleCues = emptyList()
         subtitleOffsetMs = 0L
         showControls = true
+        controlInteractTick++
 
         val resolvedType = if (currentRequest.contentType == "LIVE") "itv" else "vod"
         val playableUrl = resolvePlayableUrl(currentRequest.portal, currentRequest.streamCmdOrUrl, resolvedType)
         controller.playStream(playableUrl, currentRequest.resumePositionMs)
 
-        // في البث المباشر: جلب اسم البرنامج الحالي من EPG تلقائياً للبحث عن الترجمة
         if (currentRequest.contentType == "LIVE") {
             val epgList = when (currentRequest.portal.protocol) {
-                "XTREAM" -> com.kadri.stalkerplayerpro.data.network.XtreamApiClient.getShortEpg(currentRequest.portal, currentRequest.itemId)
+                "XTREAM" -> XtreamApiClient.getShortEpg(currentRequest.portal, currentRequest.itemId)
                 "STALKER" -> StalkerApiClient.getShortEpg(currentRequest.portal, currentRequest.itemId)
                 else -> emptyList()
             }
@@ -162,7 +160,6 @@ fun TvPlayerScreen(
         }
     }
 
-    // تحديث موقع التشغيل والساعة وحفظ موضع التوقف تلقائياً (Auto-Resume)
     LaunchedEffect(Unit) {
         var tickCount = 0
         while (true) {
@@ -191,7 +188,6 @@ fun TvPlayerScreen(
         }
     }
 
-    // إخفاء شريط التحكم تلقائياً بعد 5 ثوانٍ
     LaunchedEffect(showControls, anyOverlayModal, showSubtitleSyncBar, controlInteractTick) {
         if (showControls && !anyOverlayModal && !showSubtitleSyncBar) {
             delay(7500)
@@ -199,7 +195,17 @@ fun TvPlayerScreen(
         }
     }
 
-    // تنفيذ الانتقال للقناة عند إدخال أرقام (1..9)
+    LaunchedEffect(showControls, anyOverlayModal) {
+        if (!anyOverlayModal) {
+            delay(70)
+            if (showControls) {
+                runCatching { bottomBarInitialFocusRequester.requestFocus() }
+            } else {
+                runCatching { rootFocusRequester.requestFocus() }
+            }
+        }
+    }
+
     LaunchedEffect(digitBuffer) {
         if (digitBuffer.isNotEmpty()) {
             delay(1500)
@@ -225,14 +231,6 @@ fun TvPlayerScreen(
                     )
                 }
             }
-        }
-    }
-
-    // إعادة التركيز لسطح المشغل عند إغلاق القوائم
-    LaunchedEffect(anyOverlayModal) {
-        if (!anyOverlayModal) {
-            delay(60)
-            runCatching { rootFocusRequester.requestFocus() }
         }
     }
 
@@ -301,10 +299,8 @@ fun TvPlayerScreen(
                     val isLive = currentRequest.contentType == "LIVE"
                     val digit = extractDigitChar(event.key)
 
-                    // 1. أزرار الأرقام (0-9) في البث المباشر
                     if (isLive && digit != null) {
                         if (digit == '0' && digitBuffer.isEmpty()) {
-                            // زر 0 للعودة الفورية للقناة السابقة
                             if (previousChannelIdx in currentRequest.channelList.indices) {
                                 switchToChannelAtIndex(previousChannelIdx)
                             }
@@ -315,7 +311,6 @@ fun TvPlayerScreen(
                     }
 
                     when (event.key) {
-                        // 2. أزرار UP / DOWN للتبديل المباشر بين القنوات
                         Key.DirectionUp, Key.ChannelUp -> {
                             if (isLive) {
                                 switchToChannelAtIndex(currentChannelIdx + 1)
@@ -328,8 +323,6 @@ fun TvPlayerScreen(
                                 return@onPreviewKeyEvent true
                             }
                         }
-
-                        // 3. زر LEFT لفتح قائمة القنوات الجانبية في البث المباشر (أو الترجيع في الأفلام)
                         Key.DirectionLeft -> {
                             if (isLive && !showControls) {
                                 showChannelDrawer = true
@@ -337,27 +330,25 @@ fun TvPlayerScreen(
                             } else if (!isLive && !showControls) {
                                 controller.seekBy(-10_000L)
                                 showControls = true
+                                controlInteractTick++
                                 return@onPreviewKeyEvent true
                             }
                         }
-
                         Key.DirectionRight -> {
                             if (!isLive && !showControls) {
                                 controller.seekBy(10_000L)
                                 showControls = true
+                                controlInteractTick++
                                 return@onPreviewKeyEvent true
                             }
                         }
-
-                        // 4. زر OK لإظهار / إخفاء شريط التحكم
                         Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                             if (!showControls) {
                                 showControls = true
+                                controlInteractTick++
                                 return@onPreviewKeyEvent true
                             }
                         }
-
-                        // 5. زر MENU لفتح قائمة خيارات المشغل السريعة
                         Key.Menu -> {
                             showQuickMenu = true
                             return@onPreviewKeyEvent true
@@ -372,13 +363,24 @@ fun TvPlayerScreen(
                 false
             }
     ) {
-        // 1. طبقة عرض الفيديو (ExoPlayer / LibVLC)
         DualVideoSurface(
             controller = controller,
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. طبقة الترجمة الخارجية المستقلة (مع إزاحة التوقيت الخاصة بالترجمة فقط)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = {
+                            showControls = !showControls
+                            controlInteractTick++
+                        }
+                    )
+                }
+        )
+
         SubtitleOverlayRenderer(
             cues = subtitleCues,
             videoPositionMs = controller.currentPositionMs,
@@ -388,7 +390,6 @@ fun TvPlayerScreen(
             bgAlpha = subBgAlpha
         )
 
-        // 3. مؤشر التحميل المؤقت
         if (controller.isBuffering) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
@@ -396,7 +397,22 @@ fun TvPlayerScreen(
             )
         }
 
-        // 4. الساعة الرقمية بأرقام لاتينية (0-9) في الزاوية القابلة للتغيير
+        controller.engineStatusNotice?.let { notice ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 14.dp)
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 5.dp)
+            ) {
+                LtrText(
+                    text = notice,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+        }
+
         if (settings.showClock) {
             val clockAlignment = when (settings.clockCorner) {
                 1 -> Alignment.TopStart
@@ -407,20 +423,19 @@ fun TvPlayerScreen(
             Box(
                 modifier = Modifier
                     .align(clockAlignment)
-                    .padding(18.dp)
+                    .padding(16.dp)
                     .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
                 LtrText(
                     text = clockText,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     color = Color.White,
                     fontWeight = FontWeight.Bold
                 )
             }
         }
 
-        // 5. شارة رقم القناة المدخل بالأرقام (0-9)
         if (digitBuffer.isNotEmpty()) {
             Box(
                 modifier = Modifier
@@ -437,7 +452,6 @@ fun TvPlayerScreen(
             }
         }
 
-        // 6. شريط تقديم وتأخير تزامن الترجمة فقط (-0.5s / -0.1s / +0.1s / +0.5s)
         if (showSubtitleSyncBar && !anyOverlayModal) {
             SubtitleSyncFloatingBar(
                 offsetMs = subtitleOffsetMs,
@@ -450,22 +464,31 @@ fun TvPlayerScreen(
             )
         }
 
-        // 7. شريط التحكم السفلي (OSD) مع دعم Timeshift
         if (showControls && !anyOverlayModal) {
             PlayerBottomControlBar(
                 request = currentRequest,
                 epgTitle = currentEpgTitle,
                 controller = controller,
                 isAr = isAr,
-                onOpenSubtitles = { showSubtitleSearchDialog = true },
-                onOpenSync = { showSubtitleSyncBar = !showSubtitleSyncBar },
-                onOpenMenu = { controlInteractTick++; showQuickMenu = true },
+                initialFocusRequester = bottomBarInitialFocusRequester,
+                onUserInteract = { controlInteractTick++ },
                 onBackClick = onExitPlayer,
+                onOpenSubtitles = {
+                    controlInteractTick++
+                    showSubtitleSearchDialog = true
+                },
+                onOpenSync = {
+                    controlInteractTick++
+                    showSubtitleSyncBar = !showSubtitleSyncBar
+                },
+                onOpenMenu = {
+                    controlInteractTick++
+                    showQuickMenu = true
+                },
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
 
-        // 8. القائمة الجانبية للقنوات (تُفتح بزر LEFT وتمرر تلقائياً للقناة الحالية)
         if (showChannelDrawer && currentRequest.channelList.isNotEmpty()) {
             LiveSideChannelDrawer(
                 channels = currentRequest.channelList,
@@ -479,7 +502,6 @@ fun TvPlayerScreen(
             )
         }
 
-        // 9. قائمة خيارات المشغل السريعة (MENU / Long Press)
         if (showQuickMenu) {
             val menuOptions = listOf(
                 TvMenuOption(
@@ -533,7 +555,6 @@ fun TvPlayerScreen(
             )
         }
 
-        // 10. نافذة البحث في OpenSubtitles v1 و Subdl (مع إبقاء سنة الفيلم أو اسم برنامج EPG)
         if (showSubtitleSearchDialog) {
             val initialQuery = remember(currentRequest, currentEpgTitle) {
                 if (currentRequest.contentType == "LIVE") {
@@ -560,7 +581,6 @@ fun TvPlayerScreen(
             )
         }
 
-        // 11. نافذة تخصيص مظهر الترجمة
         if (showSubtitleStyleDialog) {
             SubtitleAppearanceDialog(
                 currentColor = subColor,
@@ -577,7 +597,6 @@ fun TvPlayerScreen(
             )
         }
 
-        // 12. نافذة اختيار مسار الصوت
         if (showAudioTracksDialog) {
             TvModalDialog(
                 title = if (isAr) "مسارات الصوت المتاحة" else "Available Audio Tracks",
@@ -635,10 +654,12 @@ private fun PlayerBottomControlBar(
     epgTitle: String,
     controller: DualPlayerController,
     isAr: Boolean,
+    initialFocusRequester: FocusRequester,
+    onUserInteract: () -> Unit,
+    onBackClick: () -> Unit,
     onOpenSubtitles: () -> Unit,
     onOpenSync: () -> Unit,
     onOpenMenu: () -> Unit,
-    onBackClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val extraColors = LocalTvExtraColors.current
@@ -648,19 +669,17 @@ private fun PlayerBottomControlBar(
         modifier = modifier
             .fillMaxWidth()
             .background(extraColors.panelOverlay)
-            .padding(horizontal = 24.dp, vertical = 14.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Box(modifier = Modifier.tvFocusItem(shape = RoundedCornerShape(8.dp), unfocusedBackgroundColor = Color.White.copy(alpha = 0.16f), onClick = onBackClick).padding(8.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
-            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = request.title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -668,13 +687,14 @@ private fun PlayerBottomControlBar(
                 if (epgTitle.isNotBlank()) {
                     Text(
                         text = epgTitle,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
+            Spacer(modifier = Modifier.width(8.dp))
             LtrText(
                 text = controller.activeEngine.label,
                 style = MaterialTheme.typography.labelSmall,
@@ -682,9 +702,8 @@ private fun PlayerBottomControlBar(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // شريط التقدم للأفلام والمسلسلات
         if (!isLive && controller.durationMs > 0L) {
             val progress = (controller.currentPositionMs.toFloat() / controller.durationMs.toFloat()).coerceIn(0f, 1f)
             LinearProgressIndicator(
@@ -705,51 +724,77 @@ private fun PlayerBottomControlBar(
                     color = Color.White
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
         }
 
-        // أزرار التحكم بالريموت (تشغيل/إيقاف، Timeshift، الترجمة، الخيارات)
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            PlayerControlChip(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                label = if (isAr) "رجوع" else "Back",
+                onFocused = onUserInteract,
+                onClick = onBackClick
+            )
             PlayerControlChip(
                 icon = Icons.Default.Replay10,
                 label = "-15s",
-                onClick = { controller.seekBy(-15_000L) }
+                onFocused = onUserInteract,
+                onClick = {
+                    onUserInteract()
+                    controller.seekBy(-15_000L)
+                }
             )
             PlayerControlChip(
                 icon = if (controller.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                 label = if (controller.isPlaying) (if (isAr) "إيقاف" else "Pause") else (if (isAr) "تشغيل" else "Play"),
-                onClick = { controller.togglePlayPause() }
+                focusRequester = initialFocusRequester,
+                onFocused = onUserInteract,
+                onClick = {
+                    onUserInteract()
+                    controller.togglePlayPause()
+                }
             )
             PlayerControlChip(
                 icon = Icons.Default.Forward10,
                 label = "+15s",
-                onClick = { controller.seekBy(15_000L) }
+                onFocused = onUserInteract,
+                onClick = {
+                    onUserInteract()
+                    controller.seekBy(15_000L)
+                }
             )
             if (isLive) {
                 PlayerControlChip(
                     icon = Icons.Default.FiberManualRecord,
                     label = "LIVE",
-                    onClick = { controller.jumpToLiveEdge() }
+                    onFocused = onUserInteract,
+                    onClick = {
+                        onUserInteract()
+                        controller.jumpToLiveEdge()
+                    }
                 )
             }
-            Spacer(modifier = Modifier.weight(1f))
             PlayerControlChip(
                 icon = Icons.Default.Subtitles,
                 label = if (isAr) "الترجمة" else "Subtitles",
+                onFocused = onUserInteract,
                 onClick = onOpenSubtitles
             )
             PlayerControlChip(
                 icon = Icons.Default.Tune,
                 label = if (isAr) "التزامن" else "Sync",
+                onFocused = onUserInteract,
                 onClick = onOpenSync
             )
             PlayerControlChip(
                 icon = Icons.Default.SettingsEthernet,
                 label = "MENU",
+                onFocused = onUserInteract,
                 onClick = onOpenMenu
             )
         }
@@ -758,29 +803,30 @@ private fun PlayerBottomControlBar(
 
 @Composable
 private fun PlayerControlChip(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
+            .onFocusChanged { if (it.isFocused) onFocused() }
             .tvFocusItem(
+                focusRequester = focusRequester,
                 shape = RoundedCornerShape(8.dp),
-                unfocusedBackgroundColor = Color.White.copy(alpha = 0.14f),
+                unfocusedBackgroundColor = Color.White.copy(alpha = 0.16f),
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(6.dp))
         LtrText(text = label, style = MaterialTheme.typography.labelMedium, color = Color.White)
     }
 }
 
-/**
- * شريط تقديم وتأخير التزامن الخاص بملف الترجمة فقط (-0.5s / -0.1s / +0.1s / +0.5s)
- */
 @Composable
 private fun SubtitleSyncFloatingBar(
     offsetMs: Long,
@@ -794,9 +840,10 @@ private fun SubtitleSyncFloatingBar(
         modifier = modifier
             .background(extraColors.panelOverlay, RoundedCornerShape(12.dp))
             .border(1.5.dp, extraColors.focusRing, RoundedCornerShape(12.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
             text = if (isAr) "تزامن الترجمة:" else "Subtitle Sync:",
@@ -812,7 +859,7 @@ private fun SubtitleSyncFloatingBar(
                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { onAdjustOffset(delta) }
                     )
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 10.dp, vertical = 7.dp)
             ) {
                 LtrText(
                     text = lbl,
@@ -824,7 +871,7 @@ private fun SubtitleSyncFloatingBar(
 
         LtrText(
             text = LocaleUtils.formatOffsetSeconds(offsetMs),
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.secondary,
             fontWeight = FontWeight.Bold
         )
@@ -836,10 +883,10 @@ private fun SubtitleSyncFloatingBar(
                     unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                     onClick = onClose
                 )
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = 7.dp)
         ) {
             Text(
-                text = if (isAr) "تم" else "Done",
+                text = if (isAr) "حفظ" else "Save",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onPrimary
             )
@@ -847,9 +894,6 @@ private fun SubtitleSyncFloatingBar(
     }
 }
 
-/**
- * القائمة الجانبية للقنوات أثناء البث (تفتح بزر LEFT وتمرر تلقائياً للقناة الحالية)
- */
 @Composable
 private fun LiveSideChannelDrawer(
     channels: List<com.kadri.stalkerplayerpro.data.model.ChannelItem>,
@@ -930,10 +974,6 @@ private fun LiveSideChannelDrawer(
     }
 }
 
-/**
- * نافذة البحث والتحميل المباشر للترجمة الخارجية (OpenSubtitles v1 + Subdl)
- * تحافظ على سنة إنتاج الفيلم في مربع البحث مع بحث احتياطي تلقائي بدون السنة عند الحاجة
- */
 @Composable
 private fun SubtitleSearchDialog(
     initialQuery: String,
@@ -954,7 +994,6 @@ private fun SubtitleSearchDialog(
             isSearching = true
             statusMsg = ""
 
-            // استخراج السنة إن وجدت لتمريرها للمحرك مع الإبقاء عليها ظاهرة في مربع البحث
             val yearMatch = Regex("""\b(19\d{2}|20\d{2})\b""").find(searchBoxText)
             val extractedYear = yearMatch?.value?.toIntOrNull()
             val cleanTitle = if (yearMatch != null) {
@@ -963,7 +1002,6 @@ private fun SubtitleSearchDialog(
                 searchBoxText.trim()
             }
 
-            // تجديد توكن OpenSubtitles تلقائياً إذا توفرت بيانات الدخول
             var jwt = settings.openSubJwtToken
             if (jwt.isBlank() && settings.openSubApiKey.isNotBlank() && settings.openSubUsername.isNotBlank()) {
                 jwt = SubtitleRepository.loginOpenSubtitles(
@@ -1055,7 +1093,7 @@ private fun SubtitleSearchDialog(
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().height(250.dp)
+                modifier = Modifier.fillMaxWidth().height(230.dp)
             ) {
                 itemsIndexed(
                     items = results,
@@ -1137,7 +1175,48 @@ private fun SubtitleAppearanceDialog(
     TvModalDialog(
         title = if (isAr) "تخصيص مظهر الترجمة" else "Subtitle Appearance",
         onDismiss = onDismiss,
-        maxWidth = 500.dp
+        maxWidth = 500.dp,
+        scrollableBody = true,
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = onDismiss
+                        )
+                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "إلغاء" else "Cancel",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = {
+                                onApply(selectedColor, selectedSize, selectedAlpha)
+                                onDismiss()
+                            }
+                        )
+                        .padding(horizontal = 24.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "حفظ" else "Save",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
     ) { firstRequester ->
         Text(
             text = if (isAr) "لون النص:" else "Text Color:",
@@ -1169,7 +1248,7 @@ private fun SubtitleAppearanceDialog(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = if (isAr) "حجم الخط:" else "Font Size:",
             style = MaterialTheme.typography.titleSmall,
@@ -1199,7 +1278,7 @@ private fun SubtitleAppearanceDialog(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = if (isAr) "شفافية الخلفية:" else "Background Opacity:",
             style = MaterialTheme.typography.titleSmall,
@@ -1226,28 +1305,6 @@ private fun SubtitleAppearanceDialog(
                         style = MaterialTheme.typography.labelLarge
                     )
                 }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Box(
-                modifier = Modifier
-                    .tvFocusItem(
-                        shape = RoundedCornerShape(10.dp),
-                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                        onClick = {
-                            onApply(selectedColor, selectedSize, selectedAlpha)
-                            onDismiss()
-                        }
-                    )
-                    .padding(horizontal = 24.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = if (isAr) "حفظ" else "Save",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.labelLarge
-                )
             }
         }
     }

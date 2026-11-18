@@ -11,13 +11,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Close
@@ -34,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -46,22 +50,24 @@ import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.TvFocusTrap
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
 
-/**
- * حاوية نافذة منبثقة مخصصة للتلفاز مع حصر التركيز (Focus Trap)
- */
 @Composable
 fun TvModalDialog(
     title: String,
     onDismiss: () -> Unit,
     maxWidth: Dp = 560.dp,
     restoreFocusRequester: FocusRequester? = null,
+    scrollableBody: Boolean = false,
+    footer: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.(firstFocusRequester: FocusRequester) -> Unit
 ) {
     val extraColors = LocalTvExtraColors.current
+    val closeBtnRequester = remember { FocusRequester() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.78f)),
+            .background(Color.Black.copy(alpha = 0.80f))
+            .padding(14.dp),
         contentAlignment = Alignment.Center
     ) {
         TvFocusTrap(
@@ -70,10 +76,11 @@ fun TvModalDialog(
         ) { firstRequester ->
             Column(
                 modifier = Modifier
-                    .widthIn(min = 340.dp, max = maxWidth)
+                    .widthIn(min = 320.dp, max = maxWidth)
+                    .heightIn(max = 520.dp)
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
-                    .border(2.dp, extraColors.focusRing.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
-                    .padding(20.dp)
+                    .border(2.dp, extraColors.focusRing.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
+                    .padding(16.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -82,32 +89,55 @@ fun TvModalDialog(
                 ) {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Box(
                         modifier = Modifier
+                            .focusProperties { down = firstRequester }
                             .tvFocusItem(
+                                focusRequester = closeBtnRequester,
                                 shape = RoundedCornerShape(8.dp),
-                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
                                 onClick = onDismiss
                             )
-                            .padding(8.dp)
+                            .padding(8.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = null,
+                            contentDescription = "Close",
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(14.dp))
-                content(firstRequester)
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val bodyModifier = if (scrollableBody) {
+                    Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                } else {
+                    Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                }
+
+                Column(modifier = bodyModifier) {
+                    content(firstRequester)
+                }
+
+                if (footer != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    footer()
+                }
             }
         }
     }
@@ -120,9 +150,6 @@ data class TvMenuOption(
     val isDestructive: Boolean = false
 )
 
-/**
- * قائمة خيارات سريعة بالريموت (MENU / Long Press)
- */
 @Composable
 fun TvActionMenuDialog(
     title: String,
@@ -132,7 +159,7 @@ fun TvActionMenuDialog(
 ) {
     TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 460.dp) { firstRequester ->
         LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             itemsIndexed(
@@ -156,7 +183,7 @@ fun TvActionMenuDialog(
                                 onSelect(option)
                             }
                         )
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (option.icon != null) {
@@ -164,13 +191,13 @@ fun TvActionMenuDialog(
                             imageVector = option.icon,
                             contentDescription = null,
                             tint = textColor,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                     }
                     Text(
                         text = option.label,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = textColor,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -182,9 +209,6 @@ fun TvActionMenuDialog(
     }
 }
 
-/**
- * لوحة إدخال رمز PIN من 4 أرقام بالريموت للرقابة الأبوية
- */
 @Composable
 fun TvPinDialog(
     title: String,
@@ -195,7 +219,7 @@ fun TvPinDialog(
 ) {
     var pin by remember { mutableStateOf("") }
 
-    TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 380.dp) { firstRequester ->
+    TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 380.dp, scrollableBody = true) { firstRequester ->
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -204,20 +228,19 @@ fun TvPinDialog(
                 imageVector = Icons.Default.Lock,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier.size(28.dp)
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // عرض الخانات الـ 4
             Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 for (i in 0 until 4) {
                     val filled = i < pin.length
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
+                            .size(42.dp)
                             .background(
                                 MaterialTheme.colorScheme.surfaceVariant,
                                 RoundedCornerShape(10.dp)
@@ -231,7 +254,7 @@ fun TvPinDialog(
                     ) {
                         LtrText(
                             text = if (filled) "*" else "-",
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -239,7 +262,7 @@ fun TvPinDialog(
             }
 
             if (!errorMessage.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = errorMessage,
                     style = MaterialTheme.typography.bodySmall,
@@ -248,7 +271,7 @@ fun TvPinDialog(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             val rows = listOf(
                 listOf("1", "2", "3"),
@@ -257,17 +280,17 @@ fun TvPinDialog(
                 listOf("C", "0", "DEL")
             )
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 rows.forEachIndexed { rIdx, row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         row.forEachIndexed { cIdx, key ->
                             val isFirst = rIdx == 0 && cIdx == 0
                             Box(
                                 modifier = Modifier
-                                    .size(width = 84.dp, height = 46.dp)
+                                    .size(width = 80.dp, height = 42.dp)
                                     .tvFocusItem(
                                         focusRequester = if (isFirst) firstRequester else null,
-                                        shape = RoundedCornerShape(10.dp),
+                                        shape = RoundedCornerShape(8.dp),
                                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                         onClick = {
                                             when (key) {
@@ -308,7 +331,7 @@ fun TvPinDialog(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = if (isAr) "الرمز الافتراضي: 0000" else "Default PIN: 0000",
                 style = MaterialTheme.typography.labelSmall,
@@ -318,9 +341,6 @@ fun TvPinDialog(
     }
 }
 
-/**
- * نافذة إدخال نص بسيط بالريموت (مثل إعادة تسمية قناة أو بوابة)
- */
 @Composable
 fun TvTextInputDialog(
     title: String,
@@ -331,39 +351,58 @@ fun TvTextInputDialog(
 ) {
     var text by remember { mutableStateOf(initialValue) }
 
-    TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 480.dp) { firstRequester ->
+    TvModalDialog(
+        title = title,
+        onDismiss = onDismiss,
+        maxWidth = 480.dp,
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = onDismiss
+                        )
+                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = "X",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = {
+                                if (text.isNotBlank()) {
+                                    onConfirm(text.trim())
+                                    onDismiss()
+                                }
+                            }
+                        )
+                        .padding(horizontal = 24.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = confirmLabel,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+            }
+        }
+    ) { _ ->
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            Box(
-                modifier = Modifier
-                    .tvFocusItem(
-                        focusRequester = firstRequester,
-                        shape = RoundedCornerShape(10.dp),
-                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                        onClick = {
-                            if (text.isNotBlank()) {
-                                onConfirm(text.trim())
-                                onDismiss()
-                            }
-                        }
-                    )
-                    .padding(horizontal = 24.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = confirmLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            }
-        }
     }
 }
