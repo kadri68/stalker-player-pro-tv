@@ -2,25 +2,32 @@ package com.kadri.stalkerplayerpro.data.local
 
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
-/**
- * مدير النسخ الاحتياطي الشامل بصيغة JSON:
- * يشمل جميع الحسابات (مع حالة التفضيل والترتيب)، المفضلة، والإعدادات.
- */
 object BackupManager {
 
-    suspend fun exportBackupToUri(
-        context: Context,
-        uri: Uri,
-        dao: AppDao,
-        settingsStore: SettingsDataStore
-    ): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
+    private const val DEFAULT_BACKUP_FILENAME = "stalker_player_pro_backup.json"
+
+    fun getDefaultBackupFile(context: Context): File {
+        val publicDownloads = runCatching {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        }.getOrNull()
+        if (publicDownloads != null && (publicDownloads.exists() || publicDownloads.mkdirs()) && publicDownloads.canWrite()) {
+            return File(publicDownloads, DEFAULT_BACKUP_FILENAME)
+        }
+        val appDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        if (!appDir.exists()) appDir.mkdirs()
+        return File(appDir, DEFAULT_BACKUP_FILENAME)
+    }
+
+    suspend fun buildBackupJsonString(dao: AppDao, settingsStore: SettingsDataStore): String =
+        withContext(Dispatchers.IO) {
             val portals = dao.getAllPortals()
             val favorites = dao.getAllFavorites()
             val settings = settingsStore.settingsFlow.first()
@@ -75,39 +82,32 @@ object BackupManager {
                 put("subBgAlpha", settings.subBgAlpha.toDouble())
             }
 
-            val root = JSONObject().apply {
+            JSONObject().apply {
                 put("app", "stalker-player pro")
                 put("version", 1)
                 put("exportedAtMs", System.currentTimeMillis())
                 put("portals", portalsArr)
                 put("favorites", favsArr)
                 put("settings", settingsObj)
-            }
+            }.toString(2)
+        }
 
-            context.contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(root.toString(2).toByteArray(Charsets.UTF_8))
-            } ?: return@withContext false
-            true
-        }.getOrDefault(false)
-    }
-
-    suspend fun importBackupFromUri(
-        context: Context,
-        uri: Uri,
+    suspend fun parseAndApplyBackupJson(
+        rawJson: String,
         dao: AppDao,
         settingsStore: SettingsDataStore
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                ?: return@withContext false
-            val root = JSONObject(raw)
+            val clean = rawJson.trim().removePrefix("\uFEFF")
+            if (clean.isBlank()) return@withContext false
+            val root = JSONObject(clean)
 
             val portalsArr = root.optJSONArray("portals")
             if (portalsArr != null) {
                 val importedPortals = ArrayList<PortalEntity>(portalsArr.length())
                 for (i in 0 until portalsArr.length()) {
                     val obj = portalsArr.optJSONObject(i) ?: continue
-                    val url = obj.optString("url")
+                    val url = obj.optString("url").trim()
                     if (url.isNotBlank()) {
                         importedPortals.add(
                             PortalEntity(
@@ -127,6 +127,9 @@ object BackupManager {
                 }
                 if (importedPortals.isNotEmpty()) {
                     dao.insertPortals(importedPortals)
+                    if (dao.getActivePortal() == null) {
+                        dao.getAllPortals().firstOrNull()?.let { dao.setActivePortal(it.id) }
+                    }
                 }
             }
 
@@ -134,7 +137,7 @@ object BackupManager {
             if (favsArr != null) {
                 for (i in 0 until favsArr.length()) {
                     val obj = favsArr.optJSONObject(i) ?: continue
-                    val itemId = obj.optString("itemId")
+                    val itemId = obj.optString("itemId").trim()
                     if (itemId.isNotBlank()) {
                         dao.addFavorite(
                             FavoriteEntity(
@@ -174,6 +177,59 @@ object BackupManager {
                 )
             }
             true
+        }.getOrDefault(false)
+    }
+
+    suspend fun exportToDefaultFolder(
+        context: Context,
+        dao: AppDao,
+        settingsStore: SettingsDataStore
+    ): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val json = buildBackupJsonString(dao, settingsStore)
+            val file = getDefaultBackupFile(context)
+            file.writeText(json, Charsets.UTF_8)
+            file.absolutePath
+        }.getOrNull()
+    }
+
+    suspend fun importFromDefaultFolder(
+        context: Context,
+        dao: AppDao,
+        settingsStore: SettingsDataStore
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val file = getDefaultBackupFile(context)
+            if (!file.exists()) return@withContext false
+            parseAndApplyBackupJson(file.readText(Charsets.UTF_8), dao, settingsStore)
+        }.getOrDefault(false)
+    }
+
+    suspend fun exportBackupToUri(
+        context: Context,
+        uri: Uri,
+        dao: AppDao,
+        settingsStore: SettingsDataStore
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val json = buildBackupJsonString(dao, settingsStore)
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(json.toByteArray(Charsets.UTF_8))
+            } ?: return@withContext false
+            true
+        }.getOrDefault(false)
+    }
+
+    suspend fun importBackupFromUri(
+        context: Context,
+        uri: Uri,
+        dao: AppDao,
+        settingsStore: SettingsDataStore
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: return@withContext false
+            parseAndApplyBackupJson(raw, dao, settingsStore)
         }.getOrDefault(false)
     }
 }

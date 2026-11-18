@@ -8,7 +8,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,10 +30,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kadri.stalkerplayerpro.core.theme.LocalTvExtraColors
 
-/**
- * مكون تركيز موحد للتلفاز بعقدة تركيز واحدة فقط (Single Focus Node)
- * يمنع تداخل focusable مع clickable ويستجيب فوراً لأزرار الريموت (OK, LongPress, MENU)
- */
 fun Modifier.tvFocusItem(
     enabled: Boolean = true,
     focusRequester: FocusRequester? = null,
@@ -55,7 +50,7 @@ fun Modifier.tvFocusItem(
     val extraColors = LocalTvExtraColors.current
 
     val activeBorderColor = focusedBorderColor ?: extraColors.focusRing
-    val activeBgColor = focusedBackgroundColor ?: MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+    val activeBgColor = focusedBackgroundColor ?: MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
 
     val currentBorderColor = if (isFocused && enabled) activeBorderColor else unfocusedBorderColor
     val currentBorderWidth = if (isFocused && enabled) borderWidth else if (unfocusedBorderColor != Color.Transparent) 1.dp else 0.dp
@@ -84,6 +79,7 @@ fun Modifier.tvFocusItem(
                 onFocusChangedCallback?.invoke(nowFocused)
             }
         }
+        .focusable(enabled = enabled, interactionSource = interactionSource)
         .onPreviewKeyEvent { keyEvent ->
             if (!enabled) return@onPreviewKeyEvent false
 
@@ -99,7 +95,7 @@ fun Modifier.tvFocusItem(
                     false
                 }
 
-                Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.ButtonA -> {
                     when (keyEvent.type) {
                         KeyEventType.KeyDown -> {
                             val repeat = keyEvent.nativeKeyEvent.repeatCount
@@ -135,5 +131,4 @@ fun Modifier.tvFocusItem(
                 )
             }
         }
-        .focusable(enabled = enabled, interactionSource = interactionSource)
 }

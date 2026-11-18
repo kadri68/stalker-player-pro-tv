@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -161,7 +162,7 @@ fun PortalsScreen(
                 .padding(18.dp)
         ) {
             // شريط الأدوات العلوي لإدارة البوابات
-            Row(
+            LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -170,7 +171,7 @@ fun PortalsScreen(
                     text = if (isAr) "إدارة البوابات والحسابات" else "Portals & Accounts",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
                 )
 
                 if (isCheckingAll) {
@@ -434,7 +435,7 @@ private fun PortalCardItem(
         MaterialTheme.colorScheme.surface
     }
 
-    Row(
+    LazyRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(bg, RoundedCornerShape(12.dp))
@@ -443,7 +444,7 @@ private fun PortalCardItem(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // زر التفعيل الرئيسي للبطاقة
-        Row(
+        LazyRow(
             modifier = Modifier
                 .weight(1f)
                 .tvFocusItem(
@@ -467,8 +468,8 @@ private fun PortalCardItem(
             )
             Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier) {
+                LazyRow(verticalAlignment = Alignment.CenterVertically) {
                     if (portal.isFavorite) {
                         Text(
                             text = "★ ",
@@ -492,7 +493,7 @@ private fun PortalCardItem(
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     LtrText(
                         text = portal.url,
                         style = MaterialTheme.typography.bodySmall,
@@ -586,7 +587,7 @@ private fun ActionChipButton(
 ) {
     val bg = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (isDestructive) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
-    Row(
+    LazyRow(
         modifier = Modifier
             .tvFocusItem(
                 shape = RoundedCornerShape(10.dp),
@@ -621,7 +622,7 @@ private fun AddPortalDialog(
         maxWidth = 580.dp
     ) { firstRequester ->
         // اختيار البروتوكول
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ProtocolType.entries.forEachIndexed { idx, proto ->
                 val active = proto == selectedProtocol
                 Box(
@@ -675,20 +676,20 @@ private fun AddPortalDialog(
             }
             ProtocolType.XTREAM -> {
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
                         label = { Text("Username") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
                     )
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
                         label = { Text("Password") },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
                     )
                 }
             }
@@ -696,7 +697,7 @@ private fun AddPortalDialog(
         }
 
         Spacer(modifier = Modifier.height(14.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Box(
                 modifier = Modifier
                     .tvFocusItem(
@@ -776,7 +777,7 @@ private fun SmartParserDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-        Row(
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically

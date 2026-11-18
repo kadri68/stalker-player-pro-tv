@@ -1,4 +1,4 @@
-name: Build Android TV APK
+name: Build Slim Phone & TV APKs
 
 on:
   push:
@@ -23,11 +23,11 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Build Slim Release APKs (<50MB)
+        run: gradle assembleRelease --no-daemon --stacktrace
 
-      - name: Upload APK Artifact
+      - name: Upload Slim APKs
         uses: actions/upload-artifact@v4
         with:
-          name: stalker-player-pro-tv-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: stalker-player-pro-slim-apks
+          path: app/build/outputs/apk/release/*.apk

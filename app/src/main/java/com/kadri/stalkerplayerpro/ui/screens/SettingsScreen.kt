@@ -225,7 +225,7 @@ fun SettingsScreen(
                         valueText = "JSON",
                         isAr = isAr,
                         onClick = {
-                            exportBackupLauncher.launch("stalker_player_pro_backup.json")
+                            scope.launch { val p = BackupManager.exportToDefaultFolder(context, dao, settingsStore); Toast.makeText(context, if (p != null) (if (isAr) "تم الحفظ في: $p" else "Saved: $p") else "Error", Toast.LENGTH_LONG).show(); runCatching { exportBackupLauncher.launch("stalker_player_pro_backup.json") } }
                         }
                     )
                 }
@@ -237,7 +237,7 @@ fun SettingsScreen(
                         valueText = "JSON",
                         isAr = isAr,
                         onClick = {
-                            importBackupLauncher.launch(arrayOf("application/json", "*/*"))
+                            scope.launch { val okLocal = BackupManager.importFromDefaultFolder(context, dao, settingsStore); if (okLocal) { Toast.makeText(context, if (isAr) "تمت استعادة النسخة من مجلد Download بنجاح" else "Restored from Download folder", Toast.LENGTH_SHORT).show() } else { val opened = runCatching { importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }.isSuccess; if (!opened) Toast.makeText(context, if (isAr) "ضع ملف stalker_player_pro_backup.json في مجلد Download" else "Place stalker_player_pro_backup.json in Download", Toast.LENGTH_LONG).show() } }
                         }
                     )
                 }

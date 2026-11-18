@@ -6,6 +6,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
@@ -37,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -65,11 +68,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // قفل الشاشة أفقياً للتلفاز ومنع انطفاء الشاشة أثناء التشغيل
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // وضع ملء الشاشة الغامر للتلفاز (إخفاء أشرطة النظام)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -115,11 +116,14 @@ private fun MainTvRoot(
 ) {
     val dao = app.database.appDao()
     val activePortal by dao.observeActivePortal().collectAsState(initial = null)
-    var selectedTab by remember { mutableIntStateOf(TvTab.LIVE.index) }
+    var selectedTab by remember { mutableIntStateOf(TvTab.PORTALS.index) }
     var activePlayback by remember { mutableStateOf<PlaybackRequest?>(null) }
     var headerClock by remember { mutableStateOf(LocaleUtils.formatClock()) }
+    val firstTabRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
+        delay(120)
+        runCatching { firstTabRequester.requestFocus() }
         while (true) {
             delay(15_000)
             headerClock = LocaleUtils.formatClock()
@@ -144,45 +148,46 @@ private fun MainTvRoot(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // شريط التنقل العلوي المخصص للتلفاز (D-Pad Top Bar)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface)
-                .padding(horizontal = 20.dp, vertical = 10.dp),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             LtrText(
                 text = "IPTV STALKER",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            TvTab.entries.forEach { tab ->
+            TvTab.entries.forEachIndexed { idx, tab ->
                 val isSelected = selectedTab == tab.index
                 Row(
                     modifier = Modifier
                         .tvFocusItem(
+                            focusRequester = if (idx == 0) firstTabRequester else null,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = if (isSelected) {
                                 MaterialTheme.colorScheme.primary
                             } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                             },
                             onClick = { selectedTab = tab.index }
                         )
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = tab.icon,
                         contentDescription = null,
                         tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
@@ -193,7 +198,7 @@ private fun MainTvRoot(
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.width(12.dp))
 
             if (activePortal != null) {
                 Text(
@@ -201,18 +206,17 @@ private fun MainTvRoot(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.secondary
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(8.dp))
             }
 
             LtrText(
                 text = headerClock,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold
             )
         }
 
-        // محتوى الشاشة المختارة
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (selectedTab) {
                 TvTab.LIVE.index -> LiveTvScreen(
