@@ -178,7 +178,7 @@ object SmartMultiParser {
                 val qPass = uri?.getQueryParameter("password") ?: uri?.getQueryParameter("pass")
 
                 // أ) التقاط Xtream من أي رابط يحتوي username و password (يشمل get.php?...&type=m3u_plus)
-                if (!qUser.isNullOrBlank() && !qPass.isNullOrBlank() && uri.host != null) {
+                if (!qUser.isNullOrBlank() && !qPass.isNullOrBlank() && uri?.host != null) {
                     pendingStalkerUrl = null
                     val cleanHost = normalizeXtreamHost(rawUrl)
                     addUnique(
@@ -301,7 +301,7 @@ object SmartMultiParser {
     private fun normalizeXtreamHost(rawUrl: String): String {
         val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return rawUrl.trim().trimEnd('/')
         val scheme = uri.scheme ?: "http"
-        val host = uri.host ?: return rawUrl.trim().trimEnd('/')
+        val host = uri?.host ?: return rawUrl.trim().trimEnd('/')
         val portPart = if (uri.port != -1) ":${uri.port}" else ""
         return "$scheme://$host$portPart"
     }
