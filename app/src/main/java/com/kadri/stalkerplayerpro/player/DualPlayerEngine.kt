@@ -20,6 +20,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -80,6 +81,8 @@ class DualPlayerController(
     private var currentUrl: String = ""
     private var pendingSeekMs: Long = 0L
     private var autoSwitchedForUrl: Boolean = false
+    private var hasRenderedFirstVideoFrame: Boolean = false
+    private var exoPlayingWithoutVideoStartMs: Long = 0L
 
     private var exoPlayer: ExoPlayer? = null
     private var libVlc: LibVLC? = null
@@ -91,6 +94,8 @@ class DualPlayerController(
         currentUrl = url
         pendingSeekMs = startPositionMs.coerceAtLeast(0L)
         autoSwitchedForUrl = forceVlc
+        hasRenderedFirstVideoFrame = false
+        exoPlayingWithoutVideoStartMs = 0L
         isBuffering = true
         engineStatusNotice = null
 
@@ -126,6 +131,8 @@ class DualPlayerController(
     private fun startExoPlayer(url: String, seekMs: Long) {
         releaseVlcOnly()
         activeEngine = ActiveEngineType.EXOPLAYER
+        hasRenderedFirstVideoFrame = false
+        exoPlayingWithoutVideoStartMs = 0L
 
         val exo = exoPlayer ?: buildExoPlayer().also { exoPlayer = it }
         val mediaItemBuilder = MediaItem.Builder().setUri(Uri.parse(url))
@@ -148,7 +155,6 @@ class DualPlayerController(
         val dataSourceFactory = OkHttpDataSource.Factory(HttpClientProvider.client)
             .setUserAgent("Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 MAG250")
 
-        // تزويد ExoPlayer بمحللات MPEG-TS الكاملة لبث IPTV المباشر
         val extractorsFactory = DefaultExtractorsFactory()
             .setConstantBitrateSeekingEnabled(true)
             .setTsExtractorFlags(
@@ -183,14 +189,29 @@ class DualPlayerController(
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+                if (playing && !hasRenderedFirstVideoFrame && exoPlayingWithoutVideoStartMs == 0L) {
+                    exoPlayingWithoutVideoStartMs = System.currentTimeMillis()
+                }
+            }
+
+            override fun onRenderedFirstFrame() {
+                hasRenderedFirstVideoFrame = true
+                exoPlayingWithoutVideoStartMs = 0L
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    hasRenderedFirstVideoFrame = true
+                    exoPlayingWithoutVideoStartMs = 0L
+                }
             }
 
             override fun onTracksChanged(tracks: Tracks) {
                 extractExoAudioTracks(tracks)
-                if (!autoSwitchedForUrl && hasUnsupportedSurroundAudio(tracks)) {
+                if (!autoSwitchedForUrl && (hasUnsupportedSurroundAudio(tracks) || hasUnsupportedVideoTrack(tracks))) {
                     autoSwitchedForUrl = true
                     val pos = player.currentPosition.coerceAtLeast(0L)
-                    engineStatusNotice = "AC3/EAC3/DTS -> LibVLC"
+                    engineStatusNotice = "Auto -> LibVLC"
                     startLibVlc(currentUrl, pos)
                 }
             }
@@ -207,6 +228,23 @@ class DualPlayerController(
             }
         })
         return player
+    }
+
+    private fun hasUnsupportedVideoTrack(tracks: Tracks): Boolean {
+        var foundVideoGroup = false
+        var hasSupportedVideo = false
+        for (group in tracks.groups) {
+            if (group.type == C.TRACK_TYPE_VIDEO) {
+                foundVideoGroup = true
+                for (i in 0 until group.length) {
+                    if (group.isTrackSupported(i)) {
+                        hasSupportedVideo = true
+                        break
+                    }
+                }
+            }
+        }
+        return foundVideoGroup && !hasSupportedVideo
     }
 
     private fun hasUnsupportedSurroundAudio(tracks: Tracks): Boolean {
@@ -402,8 +440,20 @@ class DualPlayerController(
         val pos = getLivePositionMs()
         currentPositionMs = pos
         if (activeEngine == ActiveEngineType.EXOPLAYER) {
-            exoPlayer?.let { dur ->
-                if (dur.duration > 0L) durationMs = dur.duration
+            val exo = exoPlayer
+            if (exo != null) {
+                if (exo.duration > 0L) durationMs = exo.duration
+
+                if (!autoSwitchedForUrl && exo.isPlaying && !hasRenderedFirstVideoFrame && currentUrl.isNotBlank()) {
+                    if (exoPlayingWithoutVideoStartMs == 0L) {
+                        exoPlayingWithoutVideoStartMs = System.currentTimeMillis()
+                    } else if (System.currentTimeMillis() - exoPlayingWithoutVideoStartMs >= 3500L) {
+                        autoSwitchedForUrl = true
+                        engineStatusNotice = "Video Codec -> LibVLC"
+                        startLibVlc(currentUrl, pos)
+                        return pos
+                    }
+                }
             }
         }
         return pos
