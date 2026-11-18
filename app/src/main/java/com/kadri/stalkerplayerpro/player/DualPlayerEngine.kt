@@ -22,8 +22,12 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.ui.PlayerView
 import com.kadri.stalkerplayerpro.data.network.HttpClientProvider
 import org.videolan.libvlc.LibVLC
@@ -34,7 +38,7 @@ import java.util.Locale
 
 enum class ActiveEngineType(val label: String) {
     EXOPLAYER("ExoPlayer (Media3)"),
-    LIBVLC("LibVLC (Software/Surround)")
+    LIBVLC("LibVLC (All Codecs)")
 }
 
 data class AudioTrackInfo(
@@ -47,12 +51,6 @@ data class AudioTrackInfo(
     val vlcTrackId: Int = -1
 )
 
-/**
- * محرك التشغيل المزدوج للتلفاز:
- * 1. يبدأ بـ ExoPlayer (Media3) للأداء العتادي السريع واستهلاك الذاكرة المنخفض.
- * 2. يكتشف تلقائياً ترميزات الصوت المحيطية غير المدعومة عتادياً (AC3 / EAC3 / DTS / TrueHD)
- *    أو أخطاء الفك العتادي، ويحول البث فوراً إلى LibVLC في نفس موضع التوقف.
- */
 @OptIn(UnstableApi::class)
 class DualPlayerController(
     private val context: Context,
@@ -96,7 +94,17 @@ class DualPlayerController(
         isBuffering = true
         engineStatusNotice = null
 
-        if (forceVlc) {
+        val lower = url.lowercase(Locale.US)
+        val requiresDirectVlc = forceVlc ||
+                lower.startsWith("rtmp://") ||
+                lower.startsWith("udp://") ||
+                lower.startsWith("mms://") ||
+                lower.endsWith(".avi") ||
+                lower.endsWith(".flv") ||
+                lower.endsWith(".wmv")
+
+        if (requiresDirectVlc) {
+            autoSwitchedForUrl = true
             startLibVlc(url, pendingSeekMs)
         } else {
             startExoPlayer(url, pendingSeekMs)
@@ -120,8 +128,15 @@ class DualPlayerController(
         activeEngine = ActiveEngineType.EXOPLAYER
 
         val exo = exoPlayer ?: buildExoPlayer().also { exoPlayer = it }
-        val mediaItem = MediaItem.fromUri(Uri.parse(url))
-        exo.setMediaItem(mediaItem)
+        val mediaItemBuilder = MediaItem.Builder().setUri(Uri.parse(url))
+        val lower = url.lowercase(Locale.US)
+        when {
+            lower.contains(".m3u8") -> mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+            lower.contains(".mpd") -> mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
+            lower.contains(".ism") -> mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_SS)
+        }
+
+        exo.setMediaItem(mediaItemBuilder.build())
         if (seekMs > 0L) {
             exo.seekTo(seekMs)
         }
@@ -133,8 +148,24 @@ class DualPlayerController(
         val dataSourceFactory = OkHttpDataSource.Factory(HttpClientProvider.client)
             .setUserAgent("Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 MAG250")
 
-        val player = ExoPlayer.Builder(context)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+        // تزويد ExoPlayer بمحللات MPEG-TS الكاملة لبث IPTV المباشر
+        val extractorsFactory = DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+            .setTsExtractorFlags(
+                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                        DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+            )
+
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(12_000, 45_000, 2_000, 4_000)
+            .build()
+
+        val player = ExoPlayer.Builder(context, renderersFactory)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
+            .setLoadControl(loadControl)
             .build()
 
         player.trackSelectionParameters = player.trackSelectionParameters
@@ -246,7 +277,11 @@ class DualPlayerController(
                 "--no-drop-late-frames",
                 "--no-skip-frames",
                 "--rtsp-tcp",
-                "--network-caching=1500"
+                "--http-reconnect",
+                "--network-caching=2000",
+                "--live-caching=2000",
+                "--file-caching=2000",
+                "--avcodec-hw=any"
             )
         ).also { libVlc = it }
 
@@ -287,7 +322,9 @@ class DualPlayerController(
         pendingSeekMs = seekMs
         val media = Media(vlc, Uri.parse(url)).apply {
             setHWDecoderEnabled(true, false)
-            addOption(":network-caching=1500")
+            addOption(":network-caching=2000")
+            addOption(":http-reconnect")
+            addOption(":demux=any")
         }
         mp.media = media
         media.release()
@@ -307,7 +344,6 @@ class DualPlayerController(
             )
         }
         audioTracks = list
-        // محاولة اختيار اللغة المفضلة تلقائياً
         val prefTrack = list.find { it.language.contains(preferredAudioLang, ignoreCase = true) }
         if (prefTrack != null && !prefTrack.isSelected) {
             player.audioTrack = prefTrack.vlcTrackId
@@ -435,6 +471,9 @@ fun DualVideoSurface(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     useController = false
+                    isClickable = false
+                    isFocusable = false
+                    setOnTouchListener { _, _ -> false }
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -454,6 +493,9 @@ fun DualVideoSurface(
             modifier = modifier,
             factory = { ctx ->
                 VLCVideoLayout(ctx).apply {
+                    isClickable = false
+                    isFocusable = false
+                    setOnTouchListener { _, _ -> false }
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT

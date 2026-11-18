@@ -57,6 +57,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kadri.stalkerplayerpro.core.theme.LocalTvExtraColors
@@ -92,6 +93,7 @@ fun PortalsScreen(
     val scope = rememberCoroutineScope()
     val portals by dao.observePortals().collectAsState(initial = emptyList())
 
+    var selectedProtocolFilter by remember { mutableStateOf("ALL") } // ALL, STALKER, XTREAM, M3U
     var showAddDialog by remember { mutableStateOf(false) }
     var showSmartParserDialog by remember { mutableStateOf(false) }
     var smartInitialText by remember { mutableStateOf("") }
@@ -104,6 +106,19 @@ fun PortalsScreen(
 
     val anyDialogOpen = showAddDialog || showSmartParserDialog || selectedForMenu != null ||
             selectedForQr != null || selectedForRename != null
+
+    val stalkerList = remember(portals) { portals.filter { it.protocol == "STALKER" } }
+    val xtreamList = remember(portals) { portals.filter { it.protocol == "XTREAM" } }
+    val m3uList = remember(portals) { portals.filter { it.protocol == "M3U" } }
+
+    val displayedPortals = remember(portals, selectedProtocolFilter) {
+        when (selectedProtocolFilter) {
+            "STALKER" -> stalkerList
+            "XTREAM" -> xtreamList
+            "M3U" -> m3uList
+            else -> portals
+        }
+    }
 
     fun readClipboardText(): String {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -134,9 +149,9 @@ fun PortalsScreen(
                     Toast.makeText(
                         context,
                         if (isAr) {
-                            "تم استيراد ${working.size} شغال (Stalker: $stkOk | Xtream: $xtOk | M3U: $m3uOk)"
+                            "تم استيراد ${working.size} شغال: Stalker($stkOk) | Xtream($xtOk) | M3U($m3uOk)"
                         } else {
-                            "Imported ${working.size} working (Stalker: $stkOk | Xtream: $xtOk | M3U: $m3uOk)"
+                            "Imported ${working.size} working: Stalker($stkOk) | Xtream($xtOk) | M3U($m3uOk)"
                         },
                         Toast.LENGTH_LONG
                     ).show()
@@ -183,8 +198,9 @@ fun PortalsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .blockFocusWhen(anyDialogOpen)
-                .padding(14.dp)
+                .padding(12.dp)
         ) {
+            // صف الأدوات العلوي
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -288,20 +304,60 @@ fun PortalsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            if (portals.isEmpty()) {
+            // شريط تصنيف البوابات (الكل | Stalker | Xtream | M3U)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val filterTabs = listOf(
+                    "ALL" to (if (isAr) "الكل (${portals.size})" else "All (${portals.size})"),
+                    "STALKER" to "Stalker (${stalkerList.size})",
+                    "XTREAM" to "Xtream (${xtreamList.size})",
+                    "M3U" to "M3U (${m3uList.size})"
+                )
+                filterTabs.forEach { (code, title) ->
+                    val active = selectedProtocolFilter == code
+                    Box(
+                        modifier = Modifier
+                            .tvFocusItem(
+                                shape = RoundedCornerShape(8.dp),
+                                unfocusedBackgroundColor = if (active) {
+                                    MaterialTheme.colorScheme.secondary
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                },
+                                onClick = { selectedProtocolFilter = code }
+                            )
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (active) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (displayedPortals.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = if (isAr) "لا توجد حسابات مضافة بعد" else "No accounts added yet",
+                        text = if (isAr) "لا توجد حسابات في هذا القسم" else "No accounts in this category",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ActionChipButton(
                             label = if (isAr) "إضافة حساب يدوي" else "Add Account",
@@ -324,14 +380,15 @@ fun PortalsScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     itemsIndexed(
-                        items = portals,
+                        items = displayedPortals,
                         key = { idx, portal -> "portal_row_${portal.id}_$idx" }
                     ) { index, portal ->
                         val isSelected = portal.id in selectedIds
                         PortalCardItem(
                             portal = portal,
+                            isAr = isAr,
                             isFirst = index == 0,
-                            isLast = index == portals.lastIndex,
+                            isLast = index == displayedPortals.lastIndex,
                             multiSelectMode = multiSelectMode,
                             isSelected = isSelected,
                             onActivate = {
@@ -420,7 +477,7 @@ fun PortalsScreen(
                 ),
                 TvMenuOption(
                     id = "rename",
-                    label = if (isAr) "إعادة تسمية" else "Rename",
+                    label = if (isAr) "إعادة تسمية (5 حروف)" else "Rename (5 chars)",
                     icon = Icons.Default.Edit
                 ),
                 TvMenuOption(
@@ -453,11 +510,12 @@ fun PortalsScreen(
 
         selectedForRename?.let { portal ->
             TvTextInputDialog(
-                title = if (isAr) "تعديل اسم الحساب" else "Rename Account",
+                title = if (isAr) "تعديل اسم البوابة (5 حروف الأولى)" else "Rename Portal (First 5 chars)",
                 initialValue = portal.name,
                 confirmLabel = if (isAr) "حفظ" else "Save",
                 onConfirm = { newName ->
-                    scope.launch { dao.updatePortal(portal.copy(name = newName)) }
+                    val shortName = SmartMultiParser.shortPortalName(newName, portal.name)
+                    scope.launch { dao.updatePortal(portal.copy(name = shortName)) }
                 },
                 onDismiss = { selectedForRename = null }
             )
@@ -465,9 +523,14 @@ fun PortalsScreen(
     }
 }
 
+/**
+ * بطاقة البوابة: تعرض الاسم المختصر (5 حروف) والنوع وتاريخ الصلاحية فقط
+ * دون إظهار الهوست أو الماك أو العنوان
+ */
 @Composable
 private fun PortalCardItem(
     portal: PortalEntity,
+    isAr: Boolean,
     isFirst: Boolean,
     isLast: Boolean,
     multiSelectMode: Boolean,
@@ -483,6 +546,13 @@ private fun PortalCardItem(
         MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
     } else {
         MaterialTheme.colorScheme.surface
+    }
+
+    val expiryLabel = if (portal.expiryTimestampMs > 0L) {
+        val dateStr = LocaleUtils.formatDate(portal.expiryTimestampMs)
+        if (isAr) "تاريخ الصلاحية: $dateStr" else "Expiry: $dateStr"
+    } else {
+        if (isAr) "تاريخ الصلاحية: غير محدد" else "Expiry: Unlimited / N/A"
     }
 
     Row(
@@ -526,51 +596,40 @@ private fun PortalCardItem(
                             style = MaterialTheme.typography.titleSmall
                         )
                     }
-                    Text(
-                        text = portal.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                    LtrText(
+                        text = portal.name.take(5),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     LtrText(
                         text = "[${portal.protocol}]",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    if (portal.statusText.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        LtrText(
+                            text = portal.statusText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (portal.statusText.equals("Active", true) || portal.statusText.equals("Ready", true)) {
+                                extraColors.badgeSuccess
+                            } else {
+                                extraColors.badgeWarning
+                            }
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(3.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LtrText(
-                        text = portal.url,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (portal.mac.isNotBlank()) {
-                        LtrText(
-                            text = portal.mac,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    } else if (portal.username.isNotBlank()) {
-                        LtrText(
-                            text = "U: ${portal.username}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                    if (portal.expiryTimestampMs > 0L) {
-                        val expStr = LocaleUtils.formatDate(portal.expiryTimestampMs)
-                        LtrText(
-                            text = "EXP: $expStr",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = extraColors.badgeSuccess
-                        )
-                    }
-                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = expiryLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (portal.expiryTimestampMs > 0L) extraColors.badgeSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
@@ -702,7 +761,7 @@ private fun AddPortalDialog(
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text(if (isAr) "اسم الحساب (اختياري)" else "Account Name") },
+            label = { Text(if (isAr) "اسم البوابة (يُؤخذ أول 5 حروف فقط)" else "Portal Name (First 5 chars)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -757,10 +816,13 @@ private fun AddPortalDialog(
                         unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                         onClick = {
                             if (url.isNotBlank() && url != "http://") {
-                                val finalName = name.ifBlank { "${selectedProtocol.label} Server" }
+                                val shortName = SmartMultiParser.shortPortalName(
+                                    name.ifBlank { url },
+                                    selectedProtocol.code
+                                )
                                 onSave(
                                     PortalEntity(
-                                        name = finalName.trim(),
+                                        name = shortName,
                                         protocol = selectedProtocol.code,
                                         url = url.trim(),
                                         mac = mac.trim().uppercase(),
@@ -892,9 +954,9 @@ private fun SmartParserDialog(
                                     Toast.makeText(
                                         context,
                                         if (isAr) {
-                                            "تمت إضافة ${working.size} شغال (Stalker: $stkOk | Xtream: $xtOk | M3U: $m3uOk)"
+                                            "تمت إضافة ${working.size} شغال: Stalker($stkOk) | Xtream($xtOk) | M3U($m3uOk)"
                                         } else {
-                                            "Added ${working.size} working (Stalker: $stkOk | Xtream: $xtOk | M3U: $m3uOk)"
+                                            "Added ${working.size} working: Stalker($stkOk) | Xtream($xtOk) | M3U($m3uOk)"
                                         },
                                         Toast.LENGTH_LONG
                                     ).show()
@@ -947,10 +1009,12 @@ private suspend fun importFromQrPayload(dao: AppDao, payload: String): Boolean {
         val trimmed = payload.trim()
         if (trimmed.startsWith("{")) {
             val json = JSONObject(trimmed)
+            val rawUrl = json.optString("url")
+            val rawName = json.optString("name").ifBlank { rawUrl }
             val entity = PortalEntity(
-                name = json.optString("name", "QR Account"),
+                name = SmartMultiParser.shortPortalName(rawName, "QR"),
                 protocol = json.optString("protocol", "STALKER"),
-                url = json.optString("url"),
+                url = rawUrl,
                 mac = json.optString("mac"),
                 username = json.optString("username"),
                 password = json.optString("password")

@@ -59,6 +59,7 @@ import com.kadri.stalkerplayerpro.core.tv.TvSafeSearchBar
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
+import com.kadri.stalkerplayerpro.data.local.PortalCacheStore
 import com.kadri.stalkerplayerpro.data.local.PortalEntity
 import com.kadri.stalkerplayerpro.data.local.WatchHistoryEntity
 import com.kadri.stalkerplayerpro.data.model.CategoryItem
@@ -73,23 +74,43 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun VodScreen(
-    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
-    onGoToPortals: () -> Unit = {},
     portal: PortalEntity?,
     dao: AppDao,
     isSeriesMode: Boolean,
     isAr: Boolean,
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onGoToPortals: () -> Unit = {},
     onPlayVod: (PlaybackRequest) -> Unit
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     if (portal == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = if (isAr) "يرجى تفعيل حساب من قسم «البوابات» أولاً" else "Please activate a portal first",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = if (isAr) "يرجى تفعيل حساب من قسم «البوابات» أولاً" else "Please activate a portal first",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            focusRequester = initialContentFocusRequester,
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = onGoToPortals
+                        )
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "الذهاب إلى البوابات" else "Go to Portals",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
         }
         return
     }
@@ -106,7 +127,6 @@ fun VodScreen(
     var searchQuery by remember(portal.id, isSeriesMode) { mutableStateOf("") }
     var debouncedQuery by remember(portal.id, isSeriesMode) { mutableStateOf("") }
 
-    // نافذة اختيار الموسم والحلقة للمسلسلات
     var selectedSeriesForEpisodes by remember { mutableStateOf<VodItem?>(null) }
     var seasonsMap: Map<Int, List<EpisodeItem>> by remember { mutableStateOf(emptyMap()) }
     var selectedSeasonNum by remember { mutableIntStateOf(1) }
@@ -120,17 +140,32 @@ fun VodScreen(
         visibleCount = 30
     }
 
-    fun fetchInitialData(catId: String = selectedCategoryId) {
+    fun fetchInitialData(catId: String = selectedCategoryId, forceRefresh: Boolean = false) {
         scope.launch {
             isLoading = true
             hasError = false
             visibleCount = 30
             currentStalkerPage = 1
 
+            if (catId == "HISTORY") {
+                isLoading = false
+                return@launch
+            }
+
+            if (!forceRefresh) {
+                val cached = PortalCacheStore.loadVodCache(context, portal.id, isSeriesMode, catId)
+                if (cached != null) {
+                    if (cached.first.isNotEmpty()) categories = cached.first
+                    allLoadedItems = cached.second
+                    isLoading = false
+                    return@launch
+                }
+            }
+
             when (portal.protocol) {
                 "XTREAM" -> {
                     val catAction = if (isSeriesMode) "get_series_categories" else "get_vod_categories"
-                    if (categories.isEmpty()) {
+                    if (categories.isEmpty() || forceRefresh) {
                         categories = XtreamApiClient.getCategories(portal, catAction)
                     }
                     val items = if (isSeriesMode) {
@@ -140,16 +175,22 @@ fun VodScreen(
                     }
                     allLoadedItems = items
                     hasError = items.isEmpty()
+                    if (items.isNotEmpty()) {
+                        PortalCacheStore.saveVodCache(context, portal.id, isSeriesMode, catId, categories, items)
+                    }
                 }
                 "STALKER" -> {
                     val stkType = if (isSeriesMode) "series" else "vod"
-                    if (categories.isEmpty()) {
+                    if (categories.isEmpty() || forceRefresh) {
                         categories = StalkerApiClient.getVodCategories(portal, stkType)
                     }
                     val stkCat = if (catId == "ALL") "*" else catId
                     val items = StalkerApiClient.getVodOrderedList(portal, stkType, stkCat, page = 1)
                     allLoadedItems = items
                     hasError = items.isEmpty()
+                    if (items.isNotEmpty()) {
+                        PortalCacheStore.saveVodCache(context, portal.id, isSeriesMode, catId, categories, items)
+                    }
                 }
                 else -> {
                     allLoadedItems = emptyList()
@@ -161,7 +202,7 @@ fun VodScreen(
     }
 
     LaunchedEffect(portal.id, isSeriesMode, selectedCategoryId) {
-        fetchInitialData(selectedCategoryId)
+        fetchInitialData(selectedCategoryId, forceRefresh = false)
     }
 
     val fullCategories = remember(categories, isAr) {
@@ -192,7 +233,6 @@ fun VodScreen(
         }
     }
 
-    // التحميل التدريجي (Pagination) عند الوصول لنهاية الشبكة
     LaunchedEffect(reachedEnd) {
         if (reachedEnd && !isLoading) {
             if (visibleCount < filteredItems.size) {
@@ -206,6 +246,7 @@ fun VodScreen(
                     currentStalkerPage = nextPage
                     allLoadedItems = allLoadedItems + more
                     visibleCount += 30
+                    PortalCacheStore.saveVodCache(context, portal.id, isSeriesMode, selectedCategoryId, categories, allLoadedItems)
                 }
             }
         }
@@ -216,13 +257,12 @@ fun VodScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .blockFocusWhen(selectedSeriesForEpisodes != null)
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // القائمة الجانبية للتصنيفات
             Column(
                 modifier = Modifier
-                    .width(250.dp)
+                    .width(240.dp)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
                     .padding(10.dp)
@@ -235,12 +275,12 @@ fun VodScreen(
                     },
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
 
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     itemsIndexed(
@@ -260,7 +300,7 @@ fun VodScreen(
                                     },
                                     onClick = { selectedCategoryId = cat.id }
                                 )
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (cat.id == "HISTORY") {
@@ -268,9 +308,9 @@ fun VodScreen(
                                     imageVector = Icons.Default.History,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                             }
                             Text(
                                 text = cat.name,
@@ -285,25 +325,48 @@ fun VodScreen(
                 }
             }
 
-            // شبكة البوسترات أو سجل المشاهدة
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-                    .padding(12.dp)
+                    .padding(10.dp)
             ) {
-                TvSafeSearchBar(focusRequester = initialContentFocusRequester, 
-                    query = searchQuery,
-                    placeholder = if (isSeriesMode) {
-                        if (isAr) "ابحث عن مسلسل..." else "Search series..."
-                    } else {
-                        if (isAr) "ابحث عن فيلم..." else "Search movies..."
-                    },
-                    onQueryChange = { searchQuery = it }
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TvSafeSearchBar(
+                        query = searchQuery,
+                        placeholder = if (isSeriesMode) {
+                            if (isAr) "ابحث عن مسلسل..." else "Search series..."
+                        } else {
+                            if (isAr) "ابحث عن فيلم..." else "Search movies..."
+                        },
+                        onQueryChange = { searchQuery = it },
+                        focusRequester = initialContentFocusRequester,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .tvFocusItem(
+                                shape = RoundedCornerShape(10.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = { fetchInitialData(selectedCategoryId, forceRefresh = true) }
+                            )
+                            .padding(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 if (selectedCategoryId == "HISTORY") {
                     WatchHistoryList(
@@ -340,7 +403,7 @@ fun VodScreen(
                                         .tvFocusItem(
                                             shape = RoundedCornerShape(10.dp),
                                             unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                                            onClick = { fetchInitialData(selectedCategoryId) }
+                                            onClick = { fetchInitialData(selectedCategoryId, forceRefresh = true) }
                                         )
                                         .padding(horizontal = 20.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically
@@ -358,9 +421,9 @@ fun VodScreen(
                         else -> {
                             LazyVerticalGrid(
                                 state = gridState,
-                                columns = GridCells.Adaptive(minSize = 155.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                columns = GridCells.Adaptive(minSize = 145.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 itemsIndexed(
@@ -370,26 +433,14 @@ fun VodScreen(
                                     VodPosterCard(
                                         item = item,
                                         onClick = {
-                                            if (item.isSeries) {
+                                            if (item.isSeries || isSeriesMode) {
                                                 selectedSeriesForEpisodes = item
                                                 isLoadingEpisodes = true
                                                 scope.launch {
                                                     seasonsMap = if (portal.protocol == "XTREAM") {
                                                         XtreamApiClient.getSeriesEpisodes(portal, item.id)
                                                     } else {
-                                                        // Stalker fallback single-season episode wrapper
-                                                        mapOf(
-                                                            1 to listOf(
-                                                                EpisodeItem(
-                                                                    uniqueKey = "${item.uniqueKey}_ep1",
-                                                                    id = item.id,
-                                                                    seasonNumber = 1,
-                                                                    episodeNumber = 1,
-                                                                    title = item.name,
-                                                                    streamCmdOrUrl = item.streamCmdOrUrl
-                                                                )
-                                                            )
-                                                        )
+                                                        StalkerApiClient.getSeriesSeasonsAndEpisodes(portal, item)
                                                     }
                                                     selectedSeasonNum = seasonsMap.keys.firstOrNull() ?: 1
                                                     isLoadingEpisodes = false
@@ -423,7 +474,7 @@ fun VodScreen(
             }
         }
 
-        // نافذة اختيار المواسم والحلقات للمسلسلات
+        // نافذة اختيار المواسم والحلقات للمسلسلات (Stalker + Xtream)
         selectedSeriesForEpisodes?.let { series ->
             TvModalDialog(
                 title = series.name,
@@ -451,11 +502,11 @@ fun VodScreen(
                                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                             onClick = { selectedSeasonNum = sNum }
                                         )
-                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
                                 ) {
-                                    LtrText(
-                                        text = "S${LocaleUtils.formatInt(sNum)}",
-                                        style = MaterialTheme.typography.labelLarge,
+                                    Text(
+                                        text = if (isAr) "الموسم ${LocaleUtils.formatInt(sNum)}" else "Season ${LocaleUtils.formatInt(sNum)}",
+                                        style = MaterialTheme.typography.labelMedium,
                                         color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
@@ -466,8 +517,8 @@ fun VodScreen(
 
                     val episodes = seasonsMap[selectedSeasonNum].orEmpty()
                     LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth().height(260.dp)
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                        modifier = Modifier.fillMaxWidth().height(250.dp)
                     ) {
                         itemsIndexed(
                             items = episodes,
@@ -502,11 +553,11 @@ fun VodScreen(
                                             }
                                         }
                                     )
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 LtrText(
                                     text = "E${LocaleUtils.formatInt(ep.episodeNumber)}",
                                     style = MaterialTheme.typography.labelLarge,
@@ -514,7 +565,7 @@ fun VodScreen(
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = ep.title,
+                                    text = if (isAr) "الحلقة ${LocaleUtils.formatInt(ep.episodeNumber)} - ${ep.title}" else ep.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
@@ -557,7 +608,7 @@ private fun VodPosterCard(
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(item.posterUrl)
-                        .size(240, 360) // تقييد أبعاد البوستر لحماية الرام
+                        .size(240, 360)
                         .crossfade(false)
                         .build(),
                     contentDescription = null,
@@ -569,7 +620,7 @@ private fun VodPosterCard(
                     imageVector = Icons.Default.Movie,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(36.dp)
                 )
             }
 

@@ -68,6 +68,7 @@ import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.ChannelOverrideEntity
 import com.kadri.stalkerplayerpro.data.local.FavoriteEntity
 import com.kadri.stalkerplayerpro.data.local.LockedGroupEntity
+import com.kadri.stalkerplayerpro.data.local.PortalCacheStore
 import com.kadri.stalkerplayerpro.data.local.PortalEntity
 import com.kadri.stalkerplayerpro.data.model.CategoryItem
 import com.kadri.stalkerplayerpro.data.model.ChannelItem
@@ -86,12 +87,12 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LiveTvScreen(
-    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
-    onGoToPortals: () -> Unit = {},
     portal: PortalEntity?,
     dao: AppDao,
     parentalPin: String,
     isAr: Boolean,
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onGoToPortals: () -> Unit = {},
     onPlayChannel: (PlaybackRequest) -> Unit
 ) {
     val context = LocalContext.current
@@ -100,11 +101,30 @@ fun LiveTvScreen(
 
     if (portal == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = if (isAr) "يرجى اختيار وتفعيل حساب من قسم «البوابات» أولاً" else "Please activate a portal first",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = if (isAr) "يرجى اختيار وتفعيل حساب من قسم «البوابات» أولاً" else "Please activate a portal first",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            focusRequester = initialContentFocusRequester,
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = onGoToPortals
+                        )
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "الذهاب إلى البوابات" else "Go to Portals",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
         }
         return
     }
@@ -120,7 +140,6 @@ fun LiveTvScreen(
     var searchQuery by remember(portal.id) { mutableStateOf("") }
     var debouncedQuery by remember(portal.id) { mutableStateOf("") }
 
-    // مهلة انتظار 450ms للبحث لتفادي التشنج
     LaunchedEffect(searchQuery) {
         delay(450)
         debouncedQuery = searchQuery.trim()
@@ -134,7 +153,6 @@ fun LiveTvScreen(
     val overrideMap = remember(overrides) { overrides.associateBy { it.channelId } }
     val lockedIdSet = remember(lockedGroups) { lockedGroups.map { it.categoryId }.toSet() }
 
-    // نوافذ الحوار والقوائم
     var pendingPinCategory by remember { mutableStateOf<CategoryItem?>(null) }
     var pendingPinActionLockToggle by remember { mutableStateOf<CategoryItem?>(null) }
     var pinErrorText by remember { mutableStateOf<String?>(null) }
@@ -148,10 +166,21 @@ fun LiveTvScreen(
     val anyPopupOpen = pendingPinCategory != null || pendingPinActionLockToggle != null ||
             channelForMenu != null || channelForRename != null || channelForEpg != null
 
-    fun loadLiveContent() {
+    fun loadLiveContent(forceRefresh: Boolean = false) {
         scope.launch {
             isLoading = true
             hasError = false
+
+            if (!forceRefresh) {
+                val cached = PortalCacheStore.loadLiveCache(context, portal.id)
+                if (cached != null) {
+                    categories = cached.first
+                    rawChannels = cached.second
+                    isLoading = false
+                    return@launch
+                }
+            }
+
             when (portal.protocol) {
                 "XTREAM" -> {
                     val cats = XtreamApiClient.getCategories(portal, "get_live_categories")
@@ -159,6 +188,9 @@ fun LiveTvScreen(
                     categories = cats
                     rawChannels = chs
                     hasError = chs.isEmpty()
+                    if (chs.isNotEmpty()) {
+                        PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                    }
                 }
                 "STALKER" -> {
                     val cats = StalkerApiClient.getItvGenres(portal)
@@ -166,12 +198,18 @@ fun LiveTvScreen(
                     categories = cats
                     rawChannels = chs
                     hasError = chs.isEmpty()
+                    if (chs.isNotEmpty()) {
+                        PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                    }
                 }
                 "M3U" -> {
                     val (cats, chs) = M3uStreamParser.parseFromUrl(portal.url, portal.id)
                     categories = cats
                     rawChannels = chs
                     hasError = chs.isEmpty()
+                    if (chs.isNotEmpty()) {
+                        PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                    }
                 }
             }
             isLoading = false
@@ -179,10 +217,9 @@ fun LiveTvScreen(
     }
 
     LaunchedEffect(portal.id) {
-        loadLiveContent()
+        loadLiveContent(forceRefresh = false)
     }
 
-    // بناء قائمة المجموعات الكاملة (الكل + المفضلة + مجموعات السيرفر)
     val fullCategories = remember(categories, isAr) {
         buildList {
             add(CategoryItem("ALL", if (isAr) "الكل" else "All Channels"))
@@ -191,7 +228,6 @@ fun LiveTvScreen(
         }
     }
 
-    // تطبيق التخصيص (إعادة التسمية / الإخفاء) والفلترة
     val filteredChannels = remember(rawChannels, selectedCategoryId, debouncedQuery, favIdSet, overrideMap) {
         rawChannels.asSequence()
             .mapNotNull { ch ->
@@ -219,13 +255,12 @@ fun LiveTvScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .blockFocusWhen(anyPopupOpen)
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 1. القائمة الجانبية للمجموعات
             Column(
                 modifier = Modifier
-                    .width(260.dp)
+                    .width(240.dp)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
                     .padding(10.dp)
@@ -234,12 +269,12 @@ fun LiveTvScreen(
                     text = if (isAr) "المجموعات" else "Categories",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
 
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     itemsIndexed(
@@ -281,7 +316,7 @@ fun LiveTvScreen(
                                         }
                                     }
                                 )
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
@@ -307,33 +342,50 @@ fun LiveTvScreen(
                 }
             }
 
-            // 2. قائمة القنوات + شريط البحث الآمن
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-                    .padding(12.dp)
+                    .padding(10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TvSafeSearchBar(focusRequester = initialContentFocusRequester, 
+                    TvSafeSearchBar(
                         query = searchQuery,
                         placeholder = if (isAr) "ابحث باسم القناة أو رقمها..." else "Search channel name or number...",
                         onQueryChange = { searchQuery = it },
+                        focusRequester = initialContentFocusRequester,
                         modifier = Modifier.weight(1f)
                     )
+                    // زر تحديث القائمة من السيرفر يدوياً
+                    Box(
+                        modifier = Modifier
+                            .tvFocusItem(
+                                shape = RoundedCornerShape(10.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = { loadLiveContent(forceRefresh = true) }
+                            )
+                            .padding(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                     LtrText(
                         text = "${filteredChannels.size}",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 when {
                     isLoading -> {
@@ -348,7 +400,7 @@ fun LiveTvScreen(
                                     .tvFocusItem(
                                         shape = RoundedCornerShape(10.dp),
                                         unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                                        onClick = { loadLiveContent() }
+                                        onClick = { loadLiveContent(forceRefresh = true) }
                                     )
                                     .padding(horizontal = 20.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -365,7 +417,7 @@ fun LiveTvScreen(
                     }
                     else -> {
                         LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             itemsIndexed(
@@ -400,7 +452,6 @@ fun LiveTvScreen(
             }
         }
 
-        // نافذة إدخال PIN لفتح مجموعة مقفلة
         pendingPinCategory?.let { cat ->
             TvPinDialog(
                 title = if (isAr) "مجموعة مقفلة: ${cat.name}" else "Locked Group: ${cat.name}",
@@ -420,7 +471,6 @@ fun LiveTvScreen(
             )
         }
 
-        // نافذة إدخال PIN لقفل أو إلغاء قفل مجموعة
         pendingPinActionLockToggle?.let { cat ->
             val currentlyLocked = cat.id in lockedIdSet
             TvPinDialog(
@@ -452,7 +502,6 @@ fun LiveTvScreen(
             )
         }
 
-        // قائمة خيارات القناة (بالضغط المطوّل أو MENU)
         channelForMenu?.let { ch ->
             val isFav = ch.id in favIdSet
             val options = listOf(
@@ -560,7 +609,6 @@ fun LiveTvScreen(
             )
         }
 
-        // نافذة إعادة تسمية القناة
         channelForRename?.let { ch ->
             TvTextInputDialog(
                 title = if (isAr) "إعادة تسمية القناة" else "Rename Channel",
@@ -584,7 +632,6 @@ fun LiveTvScreen(
             )
         }
 
-        // نافذة عرض دليل البرامج EPG
         channelForEpg?.let { ch ->
             TvModalDialog(
                 title = "EPG - ${ch.name}",
@@ -670,7 +717,7 @@ private fun ChannelRowCard(
                 onMenuClick = onOpenOptions,
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         LtrText(
@@ -691,7 +738,7 @@ private fun ChannelRowCard(
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(38.dp)
                     .clip(RoundedCornerShape(6.dp))
             )
         } else {
@@ -699,7 +746,7 @@ private fun ChannelRowCard(
                 imageVector = Icons.Default.Tv,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(30.dp)
             )
         }
 
@@ -712,7 +759,7 @@ private fun ChannelRowCard(
                 }
                 Text(
                     text = channel.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

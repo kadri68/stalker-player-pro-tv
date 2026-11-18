@@ -4,6 +4,7 @@ import com.kadri.stalkerplayerpro.data.local.PortalEntity
 import com.kadri.stalkerplayerpro.data.model.CategoryItem
 import com.kadri.stalkerplayerpro.data.model.ChannelItem
 import com.kadri.stalkerplayerpro.data.model.EpgProgram
+import com.kadri.stalkerplayerpro.data.model.EpisodeItem
 import com.kadri.stalkerplayerpro.data.model.VodItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -134,7 +135,7 @@ object StalkerApiClient {
                     if (id.isNotBlank() && name.isNotBlank()) {
                         list.add(
                             ChannelItem(
-                                uniqueKey = "${portal.id}_stk_live_${id}_$i",
+                                uniqueKey = "${portal.id}_stk_live_${id}_$indexOrI(i)",
                                 id = id,
                                 number = num,
                                 name = name,
@@ -150,6 +151,8 @@ object StalkerApiClient {
             }
         }.getOrDefault(emptyList())
     }
+
+    private fun indexOrI(i: Int): Int = i
 
     suspend fun getVodCategories(portal: PortalEntity, type: String = "vod"): List<CategoryItem> =
         withContext(Dispatchers.IO) {
@@ -200,6 +203,7 @@ object StalkerApiClient {
                     val year = obj.optString("year")
                     val rating = obj.optString("rating_imdb")
                     val cmd = obj.optString("cmd")
+                    val isSeriesFlag = type == "series" || obj.optInt("is_series", 0) == 1
                     if (id.isNotBlank() && name.isNotBlank()) {
                         list.add(
                             VodItem(
@@ -211,7 +215,7 @@ object StalkerApiClient {
                                 year = year,
                                 rating = rating,
                                 streamCmdOrUrl = cmd,
-                                isSeries = (type == "series")
+                                isSeries = isSeriesFlag
                             )
                         )
                     }
@@ -221,10 +225,111 @@ object StalkerApiClient {
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * جلب مواسم وحلقات المسلسل كاملة في Stalker Portal
+     */
+    suspend fun getSeriesSeasonsAndEpisodes(
+        portal: PortalEntity,
+        seriesItem: VodItem
+    ): Map<Int, List<EpisodeItem>> = withContext(Dispatchers.IO) {
+        val token = getOrFetchToken(portal) ?: return@withContext emptyMap()
+        val endpoint = resolveEndpoint(portal.url)
+        val result = sortedMapOf<Int, List<EpisodeItem>>()
+
+        val typesToTry = listOf("series", "vod")
+        for (stkType in typesToTry) {
+            runCatching {
+                val q = "type=$stkType&action=get_ordered_list&movie_id=${seriesItem.id}&p=1&JsHttpRequest=1-xml"
+                val req = buildRequest(endpoint, q, portal.mac, token)
+                HttpClientProvider.client.newCall(req).execute().use { resp ->
+                    val data = JSONObject(resp.body?.string().orEmpty())
+                        .optJSONObject("js")
+                        ?.optJSONArray("data") ?: return@use
+
+                    for (i in 0 until data.length()) {
+                        val seasonObj = data.optJSONObject(i) ?: continue
+                        val seasonId = seasonObj.optString("id")
+                        val seasonName = seasonObj.optString("name", "Season ${i + 1}")
+                        val seasonNum = Regex("""\d+""").find(seasonName)?.value?.toIntOrNull() ?: (i + 1)
+                        val seasonCmd = seasonObj.optString("cmd").ifBlank { seriesItem.streamCmdOrUrl }
+                        val seriesArr = seasonObj.optJSONArray("series")
+
+                        val epList = ArrayList<EpisodeItem>()
+                        if (seriesArr != null && seriesArr.length() > 0) {
+                            for (eIdx in 0 until seriesArr.length()) {
+                                val epNum = seriesArr.optInt(eIdx, eIdx + 1)
+                                epList.add(
+                                    EpisodeItem(
+                                        uniqueKey = "${portal.id}_stk_ep_${seriesItem.id}_s${seasonNum}_e${epNum}_$eIdx",
+                                        id = "${seasonId}_$epNum",
+                                        seasonNumber = seasonNum,
+                                        episodeNumber = epNum,
+                                        title = "Episode $epNum",
+                                        streamCmdOrUrl = "$seasonCmd||SERIES_EP:$epNum"
+                                    )
+                                )
+                            }
+                        } else if (seasonId.isNotBlank()) {
+                            // جلب الحلقات كقائمة فرعية للموسم
+                            val epQuery = "type=$stkType&action=get_ordered_list&movie_id=${seriesItem.id}&season_id=$seasonId&p=1&JsHttpRequest=1-xml"
+                            val epReq = buildRequest(endpoint, epQuery, portal.mac, token)
+                            HttpClientProvider.client.newCall(epReq).execute().use { epResp ->
+                                val epData = JSONObject(epResp.body?.string().orEmpty())
+                                    .optJSONObject("js")
+                                    ?.optJSONArray("data")
+                                if (epData != null) {
+                                    for (eIdx in 0 until epData.length()) {
+                                        val epObj = epData.optJSONObject(eIdx) ?: continue
+                                        val epId = epObj.optString("id", "${seasonId}_$eIdx")
+                                        val epTitle = epObj.optString("name", "Episode ${eIdx + 1}")
+                                        val epCmd = epObj.optString("cmd").ifBlank { seasonCmd }
+                                        val epNum = epObj.optInt("series_number", eIdx + 1)
+                                        epList.add(
+                                            EpisodeItem(
+                                                uniqueKey = "${portal.id}_stk_ep_${epId}_s${seasonNum}_$eIdx",
+                                                id = epId,
+                                                seasonNumber = seasonNum,
+                                                episodeNumber = epNum,
+                                                title = epTitle,
+                                                streamCmdOrUrl = "$epCmd||SERIES_EP:$epNum"
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        if (epList.isNotEmpty()) {
+                            result[seasonNum] = epList
+                        }
+                    }
+                }
+            }
+            if (result.isNotEmpty()) break
+        }
+
+        if (result.isEmpty()) {
+            result[1] = listOf(
+                EpisodeItem(
+                    uniqueKey = "${seriesItem.uniqueKey}_ep1",
+                    id = seriesItem.id,
+                    seasonNumber = 1,
+                    episodeNumber = 1,
+                    title = seriesItem.name,
+                    streamCmdOrUrl = seriesItem.streamCmdOrUrl
+                )
+            )
+        }
+        result
+    }
+
     suspend fun createLink(portal: PortalEntity, cmd: String, type: String = "itv"): String =
         withContext(Dispatchers.IO) {
-            val cleanCmd = cmd.removePrefix("ffmpeg ").trim()
-            if (cleanCmd.startsWith("http://") || cleanCmd.startsWith("https://")) {
+            val parts = cmd.split("||SERIES_EP:")
+            val actualCmd = parts[0]
+            val seriesEpNum = parts.getOrNull(1)?.trim()
+
+            val cleanCmd = actualCmd.removePrefix("ffmpeg ").trim()
+            if (seriesEpNum.isNullOrBlank() && (cleanCmd.startsWith("http://") || cleanCmd.startsWith("https://"))) {
                 if (!cleanCmd.contains("localhost") && !cleanCmd.contains("/ch/")) {
                     return@withContext cleanCmd
                 }
@@ -232,8 +337,10 @@ object StalkerApiClient {
             val token = getOrFetchToken(portal) ?: return@withContext cleanCmd
             runCatching {
                 val endpoint = resolveEndpoint(portal.url)
-                val encodedCmd = URLEncoder.encode(cmd, "UTF-8")
-                val q = "type=$type&action=create_link&cmd=$encodedCmd&JsHttpRequest=1-xml"
+                val encodedCmd = URLEncoder.encode(actualCmd, "UTF-8")
+                val seriesParam = if (!seriesEpNum.isNullOrBlank()) "&series=$seriesEpNum" else ""
+                val resolvedType = if (!seriesEpNum.isNullOrBlank()) "vod" else type
+                val q = "type=$resolvedType&action=create_link&cmd=$encodedCmd$seriesParam&JsHttpRequest=1-xml"
                 val req = buildRequest(endpoint, q, portal.mac, token)
                 HttpClientProvider.client.newCall(req).execute().use { resp ->
                     val rawLink = JSONObject(resp.body?.string().orEmpty())
