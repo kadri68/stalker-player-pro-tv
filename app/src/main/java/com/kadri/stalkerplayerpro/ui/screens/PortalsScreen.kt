@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.RadioButtonChecked
@@ -57,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -88,11 +92,15 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 
+const val BUILTIN_FREE_AR_M3U_URL = "https://iptv-org.github.io/iptv/languages/ara.m3u"
+
 @Composable
 fun PortalsScreen(
     dao: AppDao,
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    lastFocusedPortalId: Long = -1L,
+    onPortalFocused: (Long) -> Unit = {},
     onPortalActivated: (PortalEntity) -> Unit
 ) {
     val context = LocalContext.current
@@ -126,8 +134,17 @@ fun PortalsScreen(
         }
     }
 
-    LaunchedEffect(displayedPortals.isNotEmpty()) {
+    val targetFocusIndex = remember(displayedPortals, lastFocusedPortalId) {
+        val idx = displayedPortals.indexOfFirst { it.id == lastFocusedPortalId }
+        if (idx >= 0) idx else 0
+    }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(displayedPortals.size, anyDialogOpen) {
         if (displayedPortals.isNotEmpty() && !anyDialogOpen) {
+            if (targetFocusIndex > 0) {
+                runCatching { listState.scrollToItem(targetFocusIndex) }
+            }
             delay(80)
             runCatching { initialContentFocusRequester.requestFocus() }
         }
@@ -153,9 +170,6 @@ fun PortalsScreen(
                 val working = SmartMultiParser.filterWorkingAccounts(breakdown.allExtracted)
                 if (working.isNotEmpty()) {
                     dao.insertPortals(working)
-                    if (portals.isEmpty()) {
-                        dao.getAllPortals().firstOrNull()?.let { dao.setActivePortal(it.id) }
-                    }
                     val stkOk = working.count { it.protocol == "STALKER" }
                     val xtOk = working.count { it.protocol == "XTREAM" }
                     val m3uOk = working.count { it.protocol == "M3U" }
@@ -214,10 +228,7 @@ fun PortalsScreen(
                 }
                 isCheckingAll = false
                 if (importedEntity != null) {
-                    val newId = dao.insertPortal(importedEntity)
-                    if (portals.isEmpty()) {
-                        dao.setActivePortal(newId)
-                    }
+                    dao.insertPortal(importedEntity)
                     Toast.makeText(
                         context,
                         if (isAr) "تم استيراد ملف M3U كقائمة قنوات واحدة (${importedEntity.statusText})" else "Imported M3U playlist (${importedEntity.statusText})",
@@ -375,8 +386,11 @@ fun PortalsScreen(
                             selectedIds = emptySet()
                         } else {
                             if (selectedIds.isNotEmpty()) {
-                                val toDelete = selectedIds.toList()
-                                scope.launch { dao.deletePortalsByIds(toDelete) }
+                                val builtInIds = portals.filter { it.url == BUILTIN_FREE_AR_M3U_URL }.map { it.id }.toSet()
+                                val toDelete = selectedIds.filterNot { it in builtInIds }
+                                if (toDelete.isNotEmpty()) {
+                                    scope.launch { dao.deletePortalsByIds(toDelete) }
+                                }
                             }
                             multiSelectMode = false
                             selectedIds = emptySet()
@@ -461,6 +475,7 @@ fun PortalsScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
@@ -469,17 +484,22 @@ fun PortalsScreen(
                         key = { idx, portal -> "portal_row_${portal.id}_$idx" }
                     ) { index, portal ->
                         val isSelected = portal.id in selectedIds
+                        val isBuiltInFree = portal.url == BUILTIN_FREE_AR_M3U_URL
                         PortalCardItem(
                             portal = portal,
+                            isBuiltInFree = isBuiltInFree,
                             isAr = isAr,
                             isFirst = index == 0,
                             isLast = index == displayedPortals.lastIndex,
                             multiSelectMode = multiSelectMode,
                             isSelected = isSelected,
-                            cardFocusRequester = if (index == 0) initialContentFocusRequester else null,
+                            cardFocusRequester = if (index == targetFocusIndex) initialContentFocusRequester else null,
+                            onFocused = { onPortalFocused(portal.id) },
                             onActivate = {
                                 if (multiSelectMode) {
-                                    selectedIds = if (isSelected) selectedIds - portal.id else selectedIds + portal.id
+                                    if (!isBuiltInFree) {
+                                        selectedIds = if (isSelected) selectedIds - portal.id else selectedIds + portal.id
+                                    }
                                 } else {
                                     scope.launch {
                                         dao.setActivePortal(portal.id)
@@ -509,10 +529,7 @@ fun PortalsScreen(
                 onSave = { newPortal ->
                     scope.launch {
                         val checked = refreshPortalStatus(newPortal)
-                        val newId = dao.insertPortal(checked)
-                        if (portals.isEmpty()) {
-                            dao.setActivePortal(newId)
-                        }
+                        dao.insertPortal(checked)
                     }
                 },
                 onDismiss = { showAddDialog = false }
@@ -526,9 +543,6 @@ fun PortalsScreen(
                 onImportWorking = { workingList ->
                     scope.launch {
                         dao.insertPortals(workingList)
-                        if (portals.isEmpty()) {
-                            dao.getAllPortals().firstOrNull()?.let { dao.setActivePortal(it.id) }
-                        }
                     }
                 },
                 onDismiss = { showSmartParserDialog = false }
@@ -536,43 +550,58 @@ fun PortalsScreen(
         }
 
         selectedForMenu?.let { portal ->
-            val opts = listOf(
-                TvMenuOption(
-                    id = "fav",
-                    label = if (portal.isFavorite) {
-                        if (isAr) "إزالة من المفضلة" else "Unfavorite Account"
-                    } else {
-                        if (isAr) "تفضيل الحساب ★" else "Favorite Account ★"
-                    },
-                    icon = if (portal.isFavorite) Icons.Default.StarOutline else Icons.Default.Star
-                ),
-                TvMenuOption(
-                    id = "up",
-                    label = if (isAr) "تحريك للأعلى ▲" else "Move Up ▲",
-                    icon = Icons.Default.ArrowUpward
-                ),
-                TvMenuOption(
-                    id = "down",
-                    label = if (isAr) "تحريك للأسفل ▼" else "Move Down ▼",
-                    icon = Icons.Default.ArrowDownward
-                ),
-                TvMenuOption(
-                    id = "qr",
-                    label = if (isAr) "عرض رمز QR" else "Show QR Code",
-                    icon = Icons.Default.QrCode
-                ),
-                TvMenuOption(
-                    id = "rename",
-                    label = if (isAr) "إعادة تسمية (5 حروف)" else "Rename (5 chars)",
-                    icon = Icons.Default.Edit
-                ),
-                TvMenuOption(
-                    id = "delete",
-                    label = if (isAr) "حذف الحساب" else "Delete Account",
-                    icon = Icons.Default.Delete,
-                    isDestructive = true
+            val isBuiltInFree = portal.url == BUILTIN_FREE_AR_M3U_URL
+            val opts = buildList {
+                add(
+                    TvMenuOption(
+                        id = "fav",
+                        label = if (portal.isFavorite) {
+                            if (isAr) "إزالة من المفضلة" else "Unfavorite Account"
+                        } else {
+                            if (isAr) "تفضيل الحساب ★" else "Favorite Account ★"
+                        },
+                        icon = if (portal.isFavorite) Icons.Default.StarOutline else Icons.Default.Star
+                    )
                 )
-            )
+                add(
+                    TvMenuOption(
+                        id = "up",
+                        label = if (isAr) "تحريك للأعلى ▲" else "Move Up ▲",
+                        icon = Icons.Default.ArrowUpward
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "down",
+                        label = if (isAr) "تحريك للأسفل ▼" else "Move Down ▼",
+                        icon = Icons.Default.ArrowDownward
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "qr",
+                        label = if (isAr) "عرض رمز QR" else "Show QR Code",
+                        icon = Icons.Default.QrCode
+                    )
+                )
+                if (!isBuiltInFree) {
+                    add(
+                        TvMenuOption(
+                            id = "rename",
+                            label = if (isAr) "إعادة تسمية (5 حروف)" else "Rename (5 chars)",
+                            icon = Icons.Default.Edit
+                        )
+                    )
+                    add(
+                        TvMenuOption(
+                            id = "delete",
+                            label = if (isAr) "حذف الحساب" else "Delete Account",
+                            icon = Icons.Default.Delete,
+                            isDestructive = true
+                        )
+                    )
+                }
+            }
             TvActionMenuDialog(
                 title = portal.name,
                 options = opts,
@@ -583,7 +612,9 @@ fun PortalsScreen(
                         "down" -> scope.launch { dao.movePortal(portal.id, moveUp = false) }
                         "qr" -> selectedForQr = portal
                         "rename" -> selectedForRename = portal
-                        "delete" -> scope.launch { dao.deletePortalsByIds(listOf(portal.id)) }
+                        "delete" -> if (!isBuiltInFree) {
+                            scope.launch { dao.deletePortalsByIds(listOf(portal.id)) }
+                        }
                     }
                 },
                 onDismiss = { selectedForMenu = null }
@@ -612,12 +643,14 @@ fun PortalsScreen(
 @Composable
 private fun PortalCardItem(
     portal: PortalEntity,
+    isBuiltInFree: Boolean,
     isAr: Boolean,
     isFirst: Boolean,
     isLast: Boolean,
     multiSelectMode: Boolean,
     isSelected: Boolean,
     cardFocusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
     onActivate: () -> Unit,
     onToggleFavorite: () -> Unit,
     onMoveUp: () -> Unit,
@@ -625,23 +658,40 @@ private fun PortalCardItem(
     onOpenMenu: () -> Unit
 ) {
     val extraColors = LocalTvExtraColors.current
-    val bg = if (portal.isActive) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-    } else {
-        MaterialTheme.colorScheme.surface
+    val bg = when {
+        portal.isActive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+        isBuiltInFree -> Color(0xFFFFB300).copy(alpha = 0.10f)
+        else -> MaterialTheme.colorScheme.surface
     }
 
-    val expiryLabel = if (portal.expiryTimestampMs > 0L) {
-        val dateStr = LocaleUtils.formatDate(portal.expiryTimestampMs)
-        if (isAr) "تاريخ الصلاحية: $dateStr" else "Expiry: $dateStr"
-    } else {
-        if (isAr) "تاريخ الصلاحية: غير محدد" else "Expiry: Unlimited / N/A"
+    val expiryLabel = when {
+        isBuiltInFree -> {
+            if (isAr) "قنوات عربية مفتوحة ومجانية (محدثة باستمرار)" else "Free Arabic FTA Channels (Auto-Updated)"
+        }
+        portal.expiryTimestampMs > 0L -> {
+            val dateStr = LocaleUtils.formatDate(portal.expiryTimestampMs)
+            val daysLeft = ((portal.expiryTimestampMs - System.currentTimeMillis()) / 86_400_000L).toInt()
+            val daysSuffix = when {
+                daysLeft > 0 -> if (isAr) "(${LocaleUtils.formatInt(daysLeft)} يوم)" else "(${LocaleUtils.formatInt(daysLeft)} days)"
+                daysLeft == 0 -> if (isAr) "(ينتهي اليوم)" else "(Expires today)"
+                else -> if (isAr) "(منتهي الصلاحية)" else "(Expired)"
+            }
+            if (isAr) "تاريخ الصلاحية: $dateStr $daysSuffix" else "Expiry: $dateStr $daysSuffix"
+        }
+        else -> {
+            if (isAr) "تاريخ الصلاحية: غير محدد" else "Expiry: Unlimited / N/A"
+        }
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bg, RoundedCornerShape(12.dp))
+            .then(
+                if (isBuiltInFree) {
+                    Modifier.border(1.dp, Color(0xFFFFB300).copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                } else Modifier
+            )
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -649,6 +699,7 @@ private fun PortalCardItem(
         Row(
             modifier = Modifier
                 .weight(1f)
+                .onFocusChanged { if (it.isFocused) onFocused() }
                 .tvFocusItem(
                     focusRequester = cardFocusRequester,
                     shape = RoundedCornerShape(10.dp),
@@ -673,7 +724,15 @@ private fun PortalCardItem(
 
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (portal.isFavorite) {
+                    if (isBuiltInFree) {
+                        Icon(
+                            imageVector = Icons.Default.Public,
+                            contentDescription = null,
+                            tint = Color(0xFFFFB300),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                    } else if (portal.isFavorite) {
                         Text(
                             text = "★ ",
                             color = Color(0xFFFFD600),
@@ -688,9 +747,9 @@ private fun PortalCardItem(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     LtrText(
-                        text = "[${portal.protocol}]",
+                        text = if (isBuiltInFree) "[FREE-AR]" else "[${portal.protocol}]",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (isBuiltInFree) Color(0xFFFFB300) else MaterialTheme.colorScheme.primary
                     )
                     if (portal.statusText.isNotBlank()) {
                         Spacer(modifier = Modifier.width(8.dp))
@@ -710,7 +769,12 @@ private fun PortalCardItem(
                 Text(
                     text = expiryLabel,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (portal.expiryTimestampMs > 0L) extraColors.badgeSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = when {
+                        isBuiltInFree -> Color(0xFFFFD54F)
+                        portal.expiryTimestampMs > System.currentTimeMillis() -> extraColors.badgeSuccess
+                        portal.expiryTimestampMs > 0L -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -801,7 +865,7 @@ private fun ActionChipButton(
     ) {
         Icon(imageVector = icon, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(6.dp))
-        Text(text = label, style = MaterialTheme.typography.labelMedium, color = fg)
+        Text(text = label, style = MaterialTheme.typography.labelMedium, color = fg, softWrap = false)
     }
 }
 
@@ -1109,6 +1173,9 @@ private fun SmartParserDialog(
 }
 
 private suspend fun refreshPortalStatus(portal: PortalEntity): PortalEntity {
+    if (portal.url == BUILTIN_FREE_AR_M3U_URL) {
+        return portal.copy(statusText = "Active (Free AR)")
+    }
     return when (portal.protocol) {
         "STALKER" -> {
             val (valid, expMs) = StalkerApiClient.checkPortalAccount(portal.url, portal.mac)

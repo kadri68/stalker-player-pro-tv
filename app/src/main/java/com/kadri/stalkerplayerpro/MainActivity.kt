@@ -11,6 +11,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -39,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -55,7 +60,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -68,10 +72,12 @@ import com.kadri.stalkerplayerpro.core.tv.LocaleUtils
 import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+import com.kadri.stalkerplayerpro.data.local.PortalEntity
 import com.kadri.stalkerplayerpro.data.local.TvUserSettings
 import com.kadri.stalkerplayerpro.data.model.PlaybackRequest
 import com.kadri.stalkerplayerpro.player.TvPlayerScreen
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
+import com.kadri.stalkerplayerpro.ui.screens.BUILTIN_FREE_AR_M3U_URL
 import com.kadri.stalkerplayerpro.ui.screens.LiveTvScreen
 import com.kadri.stalkerplayerpro.ui.screens.PortalsScreen
 import com.kadri.stalkerplayerpro.ui.screens.SettingsScreen
@@ -82,7 +88,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
@@ -154,10 +159,36 @@ private fun MainTvRoot(
     var headerClock by remember { mutableStateOf(LocaleUtils.formatClock()) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
 
+    // ذاكرة حفظ آخر موضع للريموت في كل قسم
+    var lastFocusedPortalId by remember { mutableLongStateOf(-1L) }
+    var lastFocusedLiveChannelId by remember { mutableStateOf<String?>(null) }
+    var lastFocusedMovieId by remember { mutableStateOf<String?>(null) }
+    var lastFocusedSeriesId by remember { mutableStateOf<String?>(null) }
+
     val tabRequesters = remember { List(TvTab.entries.size) { FocusRequester() } }
     val contentFocusRequester = remember { FocusRequester() }
 
+    // تهيئة البوابة الثابتة للقنوات العربية الحرة والمفتوحة المحدثة باستمرار
     LaunchedEffect(Unit) {
+        val existingPortals = dao.getAllPortals()
+        val freePortal = existingPortals.find { it.url == BUILTIN_FREE_AR_M3U_URL }
+        if (freePortal == null) {
+            val insertedId = dao.insertPortal(
+                PortalEntity(
+                    name = "AR-TV",
+                    protocol = "M3U",
+                    url = BUILTIN_FREE_AR_M3U_URL,
+                    statusText = "Active (Free AR)",
+                    isFavorite = true
+                )
+            )
+            if (existingPortals.none { it.isActive }) {
+                dao.setActivePortal(insertedId)
+            }
+        } else if (existingPortals.none { it.isActive }) {
+            dao.setActivePortal(freePortal.id)
+        }
+
         delay(100)
         runCatching { tabRequesters[selectedTab].requestFocus() }
         while (true) {
@@ -190,10 +221,12 @@ private fun MainTvRoot(
                 .blockFocusWhen(showExitConfirmDialog)
                 .background(MaterialTheme.colorScheme.background)
         ) {
+            // الشريط العلوي المرن: يتأقلم مع تكبير الخط دون اقتطاع الأسماء ويميز تبويب «البوابات» بلون بارز
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
+                    .horizontalScroll(rememberScrollState())
                     .onPreviewKeyEvent { ev ->
                         if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown) {
                             val moved = runCatching { contentFocusRequester.requestFocus() }.isSuccess
@@ -203,7 +236,7 @@ private fun MainTvRoot(
                     }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 LtrText(
                     text = "IPTV STALKER",
@@ -214,48 +247,62 @@ private fun MainTvRoot(
 
                 TvTab.entries.forEachIndexed { idx, tab ->
                     val isSelected = selectedTab == tab.index
+                    val isPortalsTab = tab == TvTab.PORTALS
+
+                    val tabBgColor = when {
+                        isPortalsTab && isSelected -> Color(0xFFFFB300)
+                        isPortalsTab -> Color(0xFFFFB300).copy(alpha = 0.28f)
+                        isSelected -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    }
+                    val tabContentColor = when {
+                        isPortalsTab && isSelected -> Color.Black
+                        isPortalsTab -> Color(0xFFFFD54F)
+                        isSelected -> MaterialTheme.colorScheme.onPrimary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+
                     Row(
                         modifier = Modifier
-                            .weight(1f, fill = false)
+                            .then(
+                                if (isPortalsTab) {
+                                    Modifier.border(1.5.dp, Color(0xFFFFB300), RoundedCornerShape(8.dp))
+                                } else Modifier
+                            )
                             .focusProperties { down = contentFocusRequester }
                             .tvFocusItem(
                                 focusRequester = tabRequesters[idx],
                                 shape = RoundedCornerShape(8.dp),
-                                unfocusedBackgroundColor = if (isSelected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                                },
+                                unfocusedBackgroundColor = tabBgColor,
                                 onClick = {
                                     selectedTab = tab.index
                                     runCatching { contentFocusRequester.requestFocus() }
                                 }
                             )
-                            .padding(horizontal = 9.dp, vertical = 7.dp),
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = tab.icon,
                             contentDescription = null,
-                            tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            tint = tabContentColor,
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = if (isAr) tab.titleAr else tab.titleEn,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            fontWeight = if (isSelected || isPortalsTab) FontWeight.Bold else FontWeight.Medium,
+                            color = tabContentColor,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = false
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
-
                 if (activePortal != null) {
                     LtrText(
-                        text = activePortal!!.name.take(5),
+                        text = "[${activePortal!!.name.take(5)}]",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.secondary
@@ -269,7 +316,6 @@ private fun MainTvRoot(
                     fontWeight = FontWeight.Bold
                 )
 
-                // زر الخروج مع نافذة التأكيد
                 Box(
                     modifier = Modifier
                         .focusProperties { down = contentFocusRequester }
@@ -298,8 +344,13 @@ private fun MainTvRoot(
                         parentalPin = settings.parentalPin,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
+                        lastFocusedChannelId = lastFocusedLiveChannelId,
+                        onChannelFocused = { chId -> lastFocusedLiveChannelId = chId },
                         onGoToPortals = { selectedTab = TvTab.PORTALS.index },
-                        onPlayChannel = { req -> activePlayback = req }
+                        onPlayChannel = { req ->
+                            lastFocusedLiveChannelId = req.itemId
+                            activePlayback = req
+                        }
                     )
                     TvTab.MOVIES.index -> VodScreen(
                         portal = activePortal,
@@ -307,8 +358,13 @@ private fun MainTvRoot(
                         isSeriesMode = false,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
+                        lastFocusedItemId = lastFocusedMovieId,
+                        onItemFocused = { itemId -> lastFocusedMovieId = itemId },
                         onGoToPortals = { selectedTab = TvTab.PORTALS.index },
-                        onPlayVod = { req -> activePlayback = req }
+                        onPlayVod = { req ->
+                            lastFocusedMovieId = req.itemId
+                            activePlayback = req
+                        }
                     )
                     TvTab.SERIES.index -> VodScreen(
                         portal = activePortal,
@@ -316,14 +372,27 @@ private fun MainTvRoot(
                         isSeriesMode = true,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
+                        lastFocusedItemId = lastFocusedSeriesId,
+                        onItemFocused = { itemId -> lastFocusedSeriesId = itemId },
                         onGoToPortals = { selectedTab = TvTab.PORTALS.index },
-                        onPlayVod = { req -> activePlayback = req }
+                        onPlayVod = { req ->
+                            lastFocusedSeriesId = req.seriesId.ifBlank { req.itemId }
+                            activePlayback = req
+                        }
                     )
                     TvTab.PORTALS.index -> PortalsScreen(
                         dao = dao,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
-                        onPortalActivated = { selectedTab = TvTab.LIVE.index }
+                        lastFocusedPortalId = lastFocusedPortalId,
+                        onPortalFocused = { pId -> lastFocusedPortalId = pId },
+                        onPortalActivated = { activated ->
+                            lastFocusedPortalId = activated.id
+                            lastFocusedLiveChannelId = null
+                            lastFocusedMovieId = null
+                            lastFocusedSeriesId = null
+                            selectedTab = TvTab.LIVE.index
+                        }
                     )
                     TvTab.SETTINGS.index -> SettingsScreen(
                         dao = dao,
@@ -337,7 +406,6 @@ private fun MainTvRoot(
             }
         }
 
-        // نافذة تأكيد الخروج من التطبيق
         if (showExitConfirmDialog) {
             TvModalDialog(
                 title = if (isAr) "تأكيد الخروج" else "Confirm Exit",

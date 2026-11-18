@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -92,6 +94,8 @@ fun LiveTvScreen(
     parentalPin: String,
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    lastFocusedChannelId: String? = null,
+    onChannelFocused: (String) -> Unit = {},
     onGoToPortals: () -> Unit = {},
     onPlayChannel: (PlaybackRequest) -> Unit
 ) {
@@ -250,6 +254,23 @@ fun LiveTvScreen(
             .toList()
     }
 
+    val channelListState = rememberLazyListState()
+    val lastChannelRequester = remember { FocusRequester() }
+    val targetChannelIndex = remember(filteredChannels, lastFocusedChannelId) {
+        if (lastFocusedChannelId != null) {
+            filteredChannels.indexOfFirst { it.id == lastFocusedChannelId }
+        } else -1
+    }
+
+    // استعادة آخر قناة كان يقف عليها المؤشر عند الخروج من المشغّل أو الرجوع
+    LaunchedEffect(isLoading, filteredChannels.size, lastFocusedChannelId, anyPopupOpen) {
+        if (!isLoading && filteredChannels.isNotEmpty() && !anyPopupOpen && targetChannelIndex >= 0) {
+            runCatching { channelListState.scrollToItem(targetChannelIndex) }
+            delay(70)
+            runCatching { lastChannelRequester.requestFocus() }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -288,6 +309,12 @@ fun LiveTvScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                // التنقل التلقائي بين المجموعات بمجرد المرور بالريموت دون الحاجة لزر OK
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused && !isLocked && selectedCategoryId != cat.id) {
+                                        selectedCategoryId = cat.id
+                                    }
+                                }
                                 .tvFocusItem(
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (isSelected) {
@@ -361,7 +388,6 @@ fun LiveTvScreen(
                         focusRequester = initialContentFocusRequester,
                         modifier = Modifier.weight(1f)
                     )
-                    // زر تحديث القائمة من السيرفر يدوياً
                     Box(
                         modifier = Modifier
                             .tvFocusItem(
@@ -417,6 +443,7 @@ fun LiveTvScreen(
                     }
                     else -> {
                         LazyColumn(
+                            state = channelListState,
                             verticalArrangement = Arrangement.spacedBy(7.dp),
                             modifier = Modifier.fillMaxSize()
                         ) {
@@ -428,7 +455,10 @@ fun LiveTvScreen(
                                 ChannelRowCard(
                                     channel = channel,
                                     isFavorite = isFav,
+                                    focusRequester = if (index == targetChannelIndex) lastChannelRequester else null,
+                                    onFocused = { onChannelFocused(channel.id) },
                                     onClick = {
+                                        onChannelFocused(channel.id)
                                         onPlayChannel(
                                             PlaybackRequest(
                                                 portal = portal,
@@ -703,6 +733,8 @@ fun LiveTvScreen(
 private fun ChannelRowCard(
     channel: ChannelItem,
     isFavorite: Boolean,
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
     onClick: () -> Unit,
     onOpenOptions: () -> Unit
 ) {
@@ -710,7 +742,9 @@ private fun ChannelRowCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { if (it.isFocused) onFocused() }
             .tvFocusItem(
+                focusRequester = focusRequester,
                 shape = RoundedCornerShape(10.dp),
                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                 onLongClick = onOpenOptions,
@@ -751,7 +785,6 @@ private fun ChannelRowCard(
         }
 
         Spacer(modifier = Modifier.width(12.dp))
-
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isFavorite) {

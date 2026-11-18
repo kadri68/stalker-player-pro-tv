@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -79,6 +80,8 @@ fun VodScreen(
     isSeriesMode: Boolean,
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    lastFocusedItemId: String? = null,
+    onItemFocused: (String) -> Unit = {},
     onGoToPortals: () -> Unit = {},
     onPlayVod: (PlaybackRequest) -> Unit
 ) {
@@ -226,6 +229,22 @@ fun VodScreen(
     }
 
     val gridState = rememberLazyGridState()
+    val lastItemRequester = remember { FocusRequester() }
+    val targetItemIndex = remember(pagedItems, lastFocusedItemId) {
+        if (lastFocusedItemId != null) {
+            pagedItems.indexOfFirst { it.id == lastFocusedItemId }
+        } else -1
+    }
+
+    // استعادة آخر فيلم أو مسلسل كان يقف عليه المؤشر عند الخروج من المشغّل أو الرجوع
+    LaunchedEffect(isLoading, pagedItems.size, lastFocusedItemId, selectedSeriesForEpisodes) {
+        if (!isLoading && pagedItems.isNotEmpty() && selectedSeriesForEpisodes == null && targetItemIndex >= 0) {
+            runCatching { gridState.scrollToItem(targetItemIndex) }
+            delay(70)
+            runCatching { lastItemRequester.requestFocus() }
+        }
+    }
+
     val reachedEnd by remember {
         derivedStateOf {
             val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -291,6 +310,12 @@ fun VodScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                // التنقل الفوري بالريموت بين الأقسام دون الحاجة لزر OK
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused && selectedCategoryId != cat.id) {
+                                        selectedCategoryId = cat.id
+                                    }
+                                }
                                 .tvFocusItem(
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (isSelected) {
@@ -429,10 +454,13 @@ fun VodScreen(
                                 itemsIndexed(
                                     items = pagedItems,
                                     key = { idx, item -> "${item.uniqueKey}_$idx" }
-                                ) { _, item ->
+                                ) { index, item ->
                                     VodPosterCard(
                                         item = item,
+                                        focusRequester = if (index == targetItemIndex) lastItemRequester else null,
+                                        onFocused = { onItemFocused(item.id) },
                                         onClick = {
+                                            onItemFocused(item.id)
                                             if (item.isSeries || isSeriesMode) {
                                                 selectedSeriesForEpisodes = item
                                                 isLoadingEpisodes = true
@@ -474,7 +502,6 @@ fun VodScreen(
             }
         }
 
-        // نافذة اختيار المواسم والحلقات للمسلسلات (Stalker + Xtream)
         selectedSeriesForEpisodes?.let { series ->
             TvModalDialog(
                 title = series.name,
@@ -583,13 +610,17 @@ fun VodScreen(
 @Composable
 private fun VodPosterCard(
     item: VodItem,
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { if (it.isFocused) onFocused() }
             .tvFocusItem(
+                focusRequester = focusRequester,
                 shape = RoundedCornerShape(10.dp),
                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                 onClick = onClick
