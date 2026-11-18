@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -162,7 +163,7 @@ fun PortalsScreen(
                 .padding(18.dp)
         ) {
             // شريط الأدوات العلوي لإدارة البوابات
-            LazyRow(
+            LazyLazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -435,7 +436,7 @@ private fun PortalCardItem(
         MaterialTheme.colorScheme.surface
     }
 
-    LazyRow(
+    LazyLazyRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(bg, RoundedCornerShape(12.dp))
@@ -444,7 +445,7 @@ private fun PortalCardItem(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // زر التفعيل الرئيسي للبطاقة
-        LazyRow(
+        LazyLazyRow(
             modifier = Modifier
                 .weight(1f)
                 .tvFocusItem(
@@ -469,7 +470,7 @@ private fun PortalCardItem(
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier) {
-                LazyRow(verticalAlignment = Alignment.CenterVertically) {
+                LazyLazyRow(verticalAlignment = Alignment.CenterVertically) {
                     if (portal.isFavorite) {
                         Text(
                             text = "★ ",
@@ -493,7 +494,7 @@ private fun PortalCardItem(
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                LazyLazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     LtrText(
                         text = portal.url,
                         style = MaterialTheme.typography.bodySmall,
@@ -587,7 +588,7 @@ private fun ActionChipButton(
 ) {
     val bg = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (isDestructive) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
-    LazyRow(
+    LazyLazyRow(
         modifier = Modifier
             .tvFocusItem(
                 shape = RoundedCornerShape(10.dp),
@@ -622,7 +623,7 @@ private fun AddPortalDialog(
         maxWidth = 580.dp
     ) { firstRequester ->
         // اختيار البروتوكول
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ProtocolType.entries.forEachIndexed { idx, proto ->
                 val active = proto == selectedProtocol
                 Box(
@@ -676,7 +677,7 @@ private fun AddPortalDialog(
             }
             ProtocolType.XTREAM -> {
                 Spacer(modifier = Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyLazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
@@ -697,7 +698,7 @@ private fun AddPortalDialog(
         }
 
         Spacer(modifier = Modifier.height(14.dp))
-        LazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        LazyLazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Box(
                 modifier = Modifier
                     .tvFocusItem(
@@ -777,7 +778,7 @@ private fun SmartParserDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-        LazyRow(
+        LazyLazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically

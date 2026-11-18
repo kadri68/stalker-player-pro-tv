@@ -225,7 +225,7 @@ fun SettingsScreen(
                         valueText = "JSON",
                         isAr = isAr,
                         onClick = {
-                            scope.launch { val p = BackupManager.exportToDefaultFolder(context, dao, settingsStore); Toast.makeText(context, if (p != null) (if (isAr) "تم الحفظ في: $p" else "Saved: $p") else "Error", Toast.LENGTH_LONG).show(); runCatching { exportBackupLauncher.launch("stalker_player_pro_backup.json") } }
+                            scope.launch { val p = BackupManager.exportToDefaultFolder(context, dao, settingsStore); Toast.makeText(context, if (p != null) (if (isAr) "تم الحفظ في: $p" else "Saved: $p") else "Error", Toast.LENGTH_LONG).show(); runCatching { scope.launch { val p = BackupManager.exportToDefaultFolder(context, dao, settingsStore); Toast.makeText(context, if (p != null) (if (isAr) "تم الحفظ في: $p" else "Saved: $p") else "Error", Toast.LENGTH_LONG).show(); runCatching { exportBackupLauncher.launch("stalker_player_pro_backup.json") } } } }
                         }
                     )
                 }
