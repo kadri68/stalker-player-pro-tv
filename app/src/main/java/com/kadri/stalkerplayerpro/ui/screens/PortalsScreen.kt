@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -51,11 +51,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kadri.stalkerplayerpro.core.theme.LocalTvExtraColors
+import com.kadri.stalkerplayerpro.core.tv.LocaleUtils
 import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
@@ -84,7 +85,6 @@ fun PortalsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val extraColors = LocalTvExtraColors.current
     val portals by dao.observePortals().collectAsState(initial = emptyList())
 
     var showAddDialog by remember { mutableStateOf(false) }
@@ -99,7 +99,6 @@ fun PortalsScreen(
     val anyDialogOpen = showAddDialog || showSmartParserDialog || selectedForMenu != null ||
             selectedForQr != null || selectedForRename != null
 
-    // استيراد ملف .txt للمحلل الذكي
     val txtImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -132,7 +131,6 @@ fun PortalsScreen(
         }
     }
 
-    // استيراد حساب من صورة QR Code
     val qrImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -160,58 +158,63 @@ fun PortalsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .blockFocusWhen(anyDialogOpen)
-                .padding(18.dp)
+                .padding(16.dp)
         ) {
-            // شريط الأدوات العلوي لإدارة البوابات
-            LazyLazyRow(
-                modifier = Modifier.fillMaxWidth(),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = if (isAr) "إدارة البوابات والحسابات" else "Portals & Accounts",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
+                    text = if (isAr) "البوابات والحسابات" else "Portals & Accounts",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary
                 )
 
                 if (isCheckingAll) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(22.dp),
                         strokeWidth = 2.5.dp,
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
 
-                // إضافة يدوية
                 ActionChipButton(
                     label = if (isAr) "إضافة حساب" else "Add Account",
                     icon = Icons.Default.Add,
                     onClick = { showAddDialog = true }
                 )
 
-                // المحلل الذكي (نص)
                 ActionChipButton(
                     label = if (isAr) "المحلل الذكي" else "Smart Parser",
                     icon = Icons.Default.AutoFixHigh,
                     onClick = { showSmartParserDialog = true }
                 )
 
-                // استيراد ملف TXT
                 ActionChipButton(
                     label = if (isAr) "ملف TXT" else "Import TXT",
                     icon = Icons.Default.FileOpen,
-                    onClick = { txtImportLauncher.launch(arrayOf("text/plain", "*/*")) }
+                    onClick = {
+                        val ok = runCatching { txtImportLauncher.launch(arrayOf("text/plain", "*/*")) }.isSuccess
+                        if (!ok) {
+                            Toast.makeText(context, if (isAr) "استخدم المحلل الذكي للصق النص" else "Use Smart Parser to paste text", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 )
 
-                // استيراد QR
                 ActionChipButton(
                     label = "QR",
                     icon = Icons.Default.QrCodeScanner,
-                    onClick = { qrImportLauncher.launch(arrayOf("image/*")) }
+                    onClick = {
+                        val ok = runCatching { qrImportLauncher.launch(arrayOf("image/*")) }.isSuccess
+                        if (!ok) {
+                            Toast.makeText(context, if (isAr) "متصفح الصور غير متوفر على هذا الجهاز" else "Gallery picker unavailable", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 )
 
-                // فحص صلاحية الكل
                 ActionChipButton(
                     label = if (isAr) "فحص الكل" else "Check All",
                     icon = Icons.Default.CheckCircle,
@@ -229,7 +232,6 @@ fun PortalsScreen(
                     }
                 )
 
-                // تحديد متعدد للحذف
                 ActionChipButton(
                     label = if (multiSelectMode) {
                         if (isAr) "حذف المحدد (${selectedIds.size})" else "Delete (${selectedIds.size})"
@@ -257,16 +259,33 @@ fun PortalsScreen(
             Spacer(modifier = Modifier.height(14.dp))
 
             if (portals.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
                     Text(
                         text = if (isAr) {
-                            "لا توجد حسابات مضافة بعد. اضغط على «إضافة حساب» أو «المحلل الذكي» للبدء."
+                            "لا توجد حسابات مضافة بعد"
                         } else {
-                            "No accounts added yet. Select 'Add Account' or 'Smart Parser' to start."
+                            "No accounts added yet"
                         },
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        ActionChipButton(
+                            label = if (isAr) "إضافة حساب يدوي" else "Add Account Manually",
+                            icon = Icons.Default.Add,
+                            onClick = { showAddDialog = true }
+                        )
+                        ActionChipButton(
+                            label = if (isAr) "لصق حسابات (المحلل الذكي)" else "Paste Accounts (Smart Parser)",
+                            icon = Icons.Default.AutoFixHigh,
+                            onClick = { showSmartParserDialog = true }
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
@@ -280,7 +299,6 @@ fun PortalsScreen(
                         val isSelected = portal.id in selectedIds
                         PortalCardItem(
                             portal = portal,
-                            isAr = isAr,
                             isFirst = index == 0,
                             isLast = index == portals.lastIndex,
                             multiSelectMode = multiSelectMode,
@@ -311,7 +329,6 @@ fun PortalsScreen(
             }
         }
 
-        // نافذة إضافة حساب يدوي
         if (showAddDialog) {
             AddPortalDialog(
                 isAr = isAr,
@@ -328,20 +345,21 @@ fun PortalsScreen(
             )
         }
 
-        // نافذة المحلل الذكي متعدد الصيغ
         if (showSmartParserDialog) {
             SmartParserDialog(
                 isAr = isAr,
                 onImportWorking = { workingList ->
                     scope.launch {
                         dao.insertPortals(workingList)
+                        if (portals.isEmpty()) {
+                            dao.getAllPortals().firstOrNull()?.let { dao.setActivePortal(it.id) }
+                        }
                     }
                 },
                 onDismiss = { showSmartParserDialog = false }
             )
         }
 
-        // قائمة خيارات الحساب (بالضغط المطوّل أو MENU)
         selectedForMenu?.let { portal ->
             val opts = listOf(
                 TvMenuOption(
@@ -418,7 +436,6 @@ fun PortalsScreen(
 @Composable
 private fun PortalCardItem(
     portal: PortalEntity,
-    isAr: Boolean,
     isFirst: Boolean,
     isLast: Boolean,
     multiSelectMode: Boolean,
@@ -436,7 +453,7 @@ private fun PortalCardItem(
         MaterialTheme.colorScheme.surface
     }
 
-    LazyLazyRow(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bg, RoundedCornerShape(12.dp))
@@ -444,8 +461,7 @@ private fun PortalCardItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // زر التفعيل الرئيسي للبطاقة
-        LazyLazyRow(
+        Row(
             modifier = Modifier
                 .weight(1f)
                 .tvFocusItem(
@@ -469,8 +485,8 @@ private fun PortalCardItem(
             )
             Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier) {
-                LazyLazyRow(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     if (portal.isFavorite) {
                         Text(
                             text = "★ ",
@@ -494,7 +510,7 @@ private fun PortalCardItem(
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
-                LazyLazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     LtrText(
                         text = portal.url,
                         style = MaterialTheme.typography.bodySmall,
@@ -509,7 +525,7 @@ private fun PortalCardItem(
                         )
                     }
                     if (portal.expiryTimestampMs > 0L) {
-                        val expStr = com.kadri.stalkerplayerpro.core.tv.LocaleUtils.formatDate(portal.expiryTimestampMs)
+                        val expStr = LocaleUtils.formatDate(portal.expiryTimestampMs)
                         LtrText(
                             text = "EXP: $expStr",
                             style = MaterialTheme.typography.labelSmall,
@@ -520,14 +536,12 @@ private fun PortalCardItem(
             }
         }
 
-        // زر التفضيل المباشر ★
         SmallIconTvButton(
             icon = if (portal.isFavorite) Icons.Default.Star else Icons.Default.StarOutline,
             tint = if (portal.isFavorite) Color(0xFFFFD600) else MaterialTheme.colorScheme.onSurfaceVariant,
             onClick = onToggleFavorite
         )
 
-        // زر التحريك للأعلى ▲
         SmallIconTvButton(
             icon = Icons.Default.ArrowUpward,
             enabled = !isFirst,
@@ -535,7 +549,6 @@ private fun PortalCardItem(
             onClick = onMoveUp
         )
 
-        // زر التحريك للأسفل ▼
         SmallIconTvButton(
             icon = Icons.Default.ArrowDownward,
             enabled = !isLast,
@@ -543,7 +556,6 @@ private fun PortalCardItem(
             onClick = onMoveDown
         )
 
-        // زر الخيارات
         SmallIconTvButton(
             icon = Icons.Default.MoreVert,
             tint = MaterialTheme.colorScheme.onSurface,
@@ -554,7 +566,7 @@ private fun PortalCardItem(
 
 @Composable
 private fun SmallIconTvButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     tint: Color,
     enabled: Boolean = true,
     onClick: () -> Unit
@@ -582,13 +594,13 @@ private fun SmallIconTvButton(
 @Composable
 private fun ActionChipButton(
     label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     isDestructive: Boolean = false,
     onClick: () -> Unit
 ) {
     val bg = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (isDestructive) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
-    LazyLazyRow(
+    Row(
         modifier = Modifier
             .tvFocusItem(
                 shape = RoundedCornerShape(10.dp),
@@ -622,8 +634,7 @@ private fun AddPortalDialog(
         onDismiss = onDismiss,
         maxWidth = 580.dp
     ) { firstRequester ->
-        // اختيار البروتوكول
-        LazyLazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ProtocolType.entries.forEachIndexed { idx, proto ->
                 val active = proto == selectedProtocol
                 Box(
@@ -677,20 +688,20 @@ private fun AddPortalDialog(
             }
             ProtocolType.XTREAM -> {
                 Spacer(modifier = Modifier.height(8.dp))
-                LazyLazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
                         label = { Text("Username") },
                         singleLine = true,
-                        modifier = Modifier
+                        modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
                         label = { Text("Password") },
                         singleLine = true,
-                        modifier = Modifier
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -698,7 +709,7 @@ private fun AddPortalDialog(
         }
 
         Spacer(modifier = Modifier.height(14.dp))
-        LazyLazyRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Box(
                 modifier = Modifier
                     .tvFocusItem(
@@ -778,7 +789,7 @@ private fun SmartParserDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-        LazyLazyRow(
+        Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically

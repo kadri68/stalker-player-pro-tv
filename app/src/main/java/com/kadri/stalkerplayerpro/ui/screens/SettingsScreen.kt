@@ -145,7 +145,6 @@ fun SettingsScreen(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            // قائمة إعدادات عمودية كلاسيكية منظمة بالأيقونات والأسهم
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize()
@@ -225,7 +224,19 @@ fun SettingsScreen(
                         valueText = "JSON",
                         isAr = isAr,
                         onClick = {
-                            scope.launch { val p = BackupManager.exportToDefaultFolder(context, dao, settingsStore); Toast.makeText(context, if (p != null) (if (isAr) "تم الحفظ في: $p" else "Saved: $p") else "Error", Toast.LENGTH_LONG).show(); runCatching { scope.launch { val p = BackupManager.exportToDefaultFolder(context, dao, settingsStore); Toast.makeText(context, if (p != null) (if (isAr) "تم الحفظ في: $p" else "Saved: $p") else "Error", Toast.LENGTH_LONG).show(); runCatching { exportBackupLauncher.launch("stalker_player_pro_backup.json") } } } }
+                            scope.launch {
+                                val savedPath = BackupManager.exportToDefaultFolder(context, dao, settingsStore)
+                                if (savedPath != null) {
+                                    Toast.makeText(
+                                        context,
+                                        if (isAr) "تم الحفظ في: $savedPath" else "Saved: $savedPath",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                runCatching {
+                                    exportBackupLauncher.launch("stalker_player_pro_backup.json")
+                                }
+                            }
                         }
                     )
                 }
@@ -237,7 +248,27 @@ fun SettingsScreen(
                         valueText = "JSON",
                         isAr = isAr,
                         onClick = {
-                            scope.launch { val okLocal = BackupManager.importFromDefaultFolder(context, dao, settingsStore); if (okLocal) { Toast.makeText(context, if (isAr) "تمت استعادة النسخة من مجلد Download بنجاح" else "Restored from Download folder", Toast.LENGTH_SHORT).show() } else { val opened = runCatching { importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }.isSuccess; if (!opened) Toast.makeText(context, if (isAr) "ضع ملف stalker_player_pro_backup.json في مجلد Download" else "Place stalker_player_pro_backup.json in Download", Toast.LENGTH_LONG).show() } }
+                            scope.launch {
+                                val restoredFromDownload = BackupManager.importFromDefaultFolder(context, dao, settingsStore)
+                                if (restoredFromDownload) {
+                                    Toast.makeText(
+                                        context,
+                                        if (isAr) "تمت استعادة النسخة الاحتياطية من مجلد Download بنجاح" else "Restored from Download folder",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    val pickerOpened = runCatching {
+                                        importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                                    }.isSuccess
+                                    if (!pickerOpened) {
+                                        Toast.makeText(
+                                            context,
+                                            if (isAr) "ضع ملف stalker_player_pro_backup.json في مجلد Download ثم أعد المحاولة" else "Place stalker_player_pro_backup.json in Download folder",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
+                            }
                         }
                     )
                 }
@@ -246,7 +277,7 @@ fun SettingsScreen(
                     ClassicSettingsRow(
                         icon = Icons.Default.Info,
                         title = if (isAr) "حول التطبيق ومعلومات المطور" else "About App & Developer",
-                        valueText = "v1.0.0",
+                        valueText = "v1.1.0",
                         isAr = isAr,
                         onClick = { showAboutDialog = true }
                     )
@@ -254,7 +285,6 @@ fun SettingsScreen(
             }
         }
 
-        // نافذة اختيار الثيم من الثيمات الـ 6
         if (showThemeDialog) {
             TvModalDialog(
                 title = if (isAr) "اختر ثيم الواجهة" else "Select Interface Theme",
@@ -308,7 +338,6 @@ fun SettingsScreen(
             }
         }
 
-        // نافذة اختيار حجم خط الواجهة (كبير، كبير جداً، ضخم، ضخم جداً)
         if (showFontDialog) {
             TvModalDialog(
                 title = if (isAr) "حجم خط الواجهة للتلفاز" else "TV Interface Font Size",
@@ -352,7 +381,6 @@ fun SettingsScreen(
             }
         }
 
-        // نافذة إعدادات الساعة الرقمية
         if (showClockDialog) {
             TvModalDialog(
                 title = if (isAr) "إعدادات الساعة الرقمية" else "Digital Clock Settings",
@@ -420,7 +448,6 @@ fun SettingsScreen(
             }
         }
 
-        // نافذة تعيين رمز PIN جديد
         if (showPinDialog) {
             TvPinDialog(
                 title = if (isAr) "تعيين رمز PIN جديد (4 أرقام)" else "Set New 4-Digit PIN",
@@ -438,7 +465,6 @@ fun SettingsScreen(
             )
         }
 
-        // نافذة إعدادات OpenSubtitles v1 و Subdl
         if (showSubApiDialog) {
             var osKey by remember { mutableStateOf(settings.openSubApiKey) }
             var osUser by remember { mutableStateOf(settings.openSubUsername) }
@@ -519,7 +545,6 @@ fun SettingsScreen(
             }
         }
 
-        // نافذة «حول التطبيق» بمعلومات المطور
         if (showAboutDialog) {
             TvModalDialog(
                 title = if (isAr) "حول التطبيق" else "About Application",
