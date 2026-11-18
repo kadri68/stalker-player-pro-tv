@@ -135,7 +135,7 @@ object StalkerApiClient {
                     if (id.isNotBlank() && name.isNotBlank()) {
                         list.add(
                             ChannelItem(
-                                uniqueKey = "${portal.id}_stk_live_${id}_$indexOrI(i)",
+                                uniqueKey = "${portal.id}_stk_live_${id}_$i",
                                 id = id,
                                 number = num,
                                 name = name,
