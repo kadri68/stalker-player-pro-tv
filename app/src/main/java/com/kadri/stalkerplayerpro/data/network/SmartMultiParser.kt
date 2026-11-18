@@ -8,7 +8,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -30,9 +29,6 @@ object SmartMultiParser {
     private val passLabelRegex = Regex("""(?:pass|password|pwd)\s*[:=]\s*([^\s"'<>|]+)""", RegexOption.IGNORE_CASE)
     private val colonCredsRegex = Regex("""(https?://[^:\s]+(?::\d+)?):([^:\s/]+):([^:\s/]+)""", RegexOption.IGNORE_CASE)
 
-    /**
-     * استخراج اسم البوابة بأول 5 حروف فقط كما هو مطلوب
-     */
     fun shortPortalName(rawHostOrName: String, fallback: String = "PORTL"): String {
         val cleaned = rawHostOrName
             .removePrefix("http://")
@@ -43,6 +39,30 @@ object SmartMultiParser {
             .trim()
         val chosen = cleaned.ifBlank { fallback }
         return chosen.take(5)
+    }
+
+    private fun mergeBrokenUrlLines(rawText: String): List<String> {
+        val rawLines = rawText.lines()
+        val merged = ArrayList<String>(rawLines.size)
+        for (line in rawLines) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) {
+                merged.add("")
+                continue
+            }
+            if (merged.isNotEmpty() &&
+                (trimmed.startsWith("/") || trimmed.startsWith("?") || trimmed.startsWith("&")) &&
+                !trimmed.contains(" ")
+            ) {
+                val prev = merged.last()
+                if (prev.contains("http://", true) || prev.contains("https://", true)) {
+                    merged[merged.lastIndex] = prev.trimEnd('/') + trimmed
+                    continue
+                }
+            }
+            merged.add(trimmed)
+        }
+        return merged
     }
 
     fun analyzeText(rawText: String): SmartParseBreakdown {
@@ -60,10 +80,13 @@ object SmartMultiParser {
             }
         }
 
-        // 1. استخراج صيغ Xtream ذات التسميات الصريحة (Host + User + Pass)
-        val hostMatches = hostLabelRegex.findAll(rawText).toList()
-        val userMatches = userLabelRegex.findAll(rawText).toList()
-        val passMatches = passLabelRegex.findAll(rawText).toList()
+        val lines = mergeBrokenUrlLines(rawText)
+        val normalizedFullText = lines.joinToString("\n")
+
+        // 1. صيغ Xtream ذات التسميات الصريحة (Host + User + Pass)
+        val hostMatches = hostLabelRegex.findAll(normalizedFullText).toList()
+        val userMatches = userLabelRegex.findAll(normalizedFullText).toList()
+        val passMatches = passLabelRegex.findAll(normalizedFullText).toList()
 
         if (hostMatches.isNotEmpty() && userMatches.isNotEmpty() && passMatches.isNotEmpty()) {
             for (hMatch in hostMatches) {
@@ -93,8 +116,8 @@ object SmartMultiParser {
             }
         }
 
-        // 2. استخراج صيغة http://host:port:username:password
-        for (m in colonCredsRegex.findAll(rawText)) {
+        // 2. صيغة http://host:port:username:password
+        for (m in colonCredsRegex.findAll(normalizedFullText)) {
             val h = normalizeXtreamHost(m.groupValues[1])
             val u = m.groupValues[2].trim()
             val p = m.groupValues[3].trim()
@@ -112,8 +135,7 @@ object SmartMultiParser {
             }
         }
 
-        // 3. تحليل سطري مع عزل السياق للتمييز الدقيق بين M3U و Xtream و Stalker
-        val lines = rawText.lines()
+        // 3. تحليل سطري مع دعم تعدد MAC لنفس الهوست والتقاط Xtream من كافة الروابط
         var pendingStalkerUrl: String? = null
         var pendingStalkerLineIdx = -10
         val pendingMacs = mutableListOf<String>()
@@ -121,11 +143,7 @@ object SmartMultiParser {
 
         for (i in lines.indices) {
             val line = lines[i].trim()
-            if (line.isEmpty()) {
-                if (i - pendingStalkerLineIdx > 2) pendingStalkerUrl = null
-                if (i - pendingMacLineIdx > 2) pendingMacs.clear()
-                continue
-            }
+            if (line.isEmpty()) continue
 
             val lineUser = userLabelRegex.find(line)?.groupValues?.getOrNull(1)
             val linePass = passLabelRegex.find(line)?.groupValues?.getOrNull(1)
@@ -156,27 +174,10 @@ object SmartMultiParser {
 
             for (rawUrl in urlsInLine) {
                 val uri = runCatching { Uri.parse(rawUrl) }.getOrNull()
-                val qUser = uri?.getQueryParameter("username")
-                val qPass = uri?.getQueryParameter("password")
-                val isExplicitM3u = rawUrl.contains(".m3u", ignoreCase = true) ||
-                        rawUrl.contains("type=m3u", ignoreCase = true) ||
-                        rawUrl.contains("output=m3u", ignoreCase = true)
+                val qUser = uri?.getQueryParameter("username") ?: uri?.getQueryParameter("user")
+                val qPass = uri?.getQueryParameter("password") ?: uri?.getQueryParameter("pass")
 
-                // أ) تصنيف M3U المباشر (يشمل روابط .m3u / .m3u8 وروابط get.php?...&type=m3u_plus)
-                if (isExplicitM3u) {
-                    pendingStalkerUrl = null
-                    val hostLabel = uri?.host ?: "M3U"
-                    addUnique(
-                        PortalEntity(
-                            name = shortPortalName(hostLabel),
-                            protocol = "M3U",
-                            url = rawUrl.trim()
-                        )
-                    )
-                    continue
-                }
-
-                // ب) تصنيف Xtream عبر Query Parameters (player_api.php أو get.php بدون type=m3u)
+                // أ) التقاط Xtream من أي رابط يحتوي username و password (يشمل get.php?...&type=m3u_plus)
                 if (!qUser.isNullOrBlank() && !qPass.isNullOrBlank() && uri.host != null) {
                     pendingStalkerUrl = null
                     val cleanHost = normalizeXtreamHost(rawUrl)
@@ -192,18 +193,19 @@ object SmartMultiParser {
                     continue
                 }
 
-                // ج) تصنيف Xtream عبر المسار (مثل http://host:port/live/user/pass/123.ts أو http://host:port/user/pass)
+                // ب) التقاط Xtream من روابط المسار (/live/user/pass/123.ts أو /user/pass)
                 val pathSegments = uri?.pathSegments.orEmpty()
                 if (uri?.host != null && pathSegments.size >= 2 &&
                     !rawUrl.contains("portal.php", true) &&
-                    !rawUrl.contains("/c", true)
+                    !rawUrl.endsWith("/c", true) &&
+                    !rawUrl.endsWith("/c/", true)
                 ) {
                     val firstSeg = pathSegments[0].lowercase()
                     val candidateUser = if (firstSeg in listOf("live", "movie", "series") && pathSegments.size >= 3) pathSegments[1] else pathSegments[0]
                     val candidatePass = if (firstSeg in listOf("live", "movie", "series") && pathSegments.size >= 3) pathSegments[2] else pathSegments[1]
                     if (candidateUser.isNotBlank() && candidatePass.isNotBlank() &&
                         !candidateUser.contains(".") && !candidatePass.contains(".") &&
-                        candidateUser !in listOf("c", "stalker_portal", "portal.php", "player_api.php", "get.php")
+                        candidateUser.lowercase() !in listOf("c", "stalker_portal", "portal.php", "player_api.php", "get.php", "xmltv.php")
                     ) {
                         pendingStalkerUrl = null
                         val cleanHost = normalizeXtreamHost(rawUrl)
@@ -220,9 +222,26 @@ object SmartMultiParser {
                     }
                 }
 
-                // د) تصنيف Stalker Portal (مقترن بعنوان MAC في نفس السطر أو ضمن 3 أسطر)
+                // ج) روابط M3U / M3U8 المباشرة
+                if (rawUrl.contains(".m3u", ignoreCase = true) || rawUrl.contains("type=m3u", ignoreCase = true)) {
+                    pendingStalkerUrl = null
+                    val hostLabel = uri?.host ?: "M3U"
+                    addUnique(
+                        PortalEntity(
+                            name = shortPortalName(hostLabel),
+                            protocol = "M3U",
+                            url = rawUrl.trim()
+                        )
+                    )
+                    continue
+                }
+
+                // د) رابط Stalker Portal (مع دعم تعدد عناوين MAC)
+                pendingStalkerUrl = rawUrl.trim()
+                pendingStalkerLineIdx = i
+                val hostLabel = uri?.host ?: "Stalker"
+
                 if (macsInLine.isNotEmpty()) {
-                    val hostLabel = uri?.host ?: "Stalker"
                     for (mac in macsInLine) {
                         addUnique(
                             PortalEntity(
@@ -233,10 +252,7 @@ object SmartMultiParser {
                             )
                         )
                     }
-                    pendingStalkerUrl = rawUrl.trim()
-                    pendingStalkerLineIdx = i
-                } else if (pendingMacs.isNotEmpty() && (i - pendingMacLineIdx) <= 3) {
-                    val hostLabel = uri?.host ?: "Stalker"
+                } else if (pendingMacs.isNotEmpty() && (i - pendingMacLineIdx) <= 4) {
                     for (mac in pendingMacs) {
                         addUnique(
                             PortalEntity(
@@ -248,17 +264,12 @@ object SmartMultiParser {
                         )
                     }
                     pendingMacs.clear()
-                    pendingStalkerUrl = rawUrl.trim()
-                    pendingStalkerLineIdx = i
-                } else {
-                    pendingStalkerUrl = rawUrl.trim()
-                    pendingStalkerLineIdx = i
                 }
             }
 
             if (urlsInLine.isEmpty() && macsInLine.isNotEmpty()) {
                 val activeUrl = pendingStalkerUrl
-                if (activeUrl != null && (i - pendingStalkerLineIdx) <= 4) {
+                if (activeUrl != null && (i - pendingStalkerLineIdx) <= 8) {
                     val hostLabel = runCatching { Uri.parse(activeUrl).host }.getOrNull() ?: "Stalker"
                     for (mac in macsInLine) {
                         addUnique(
