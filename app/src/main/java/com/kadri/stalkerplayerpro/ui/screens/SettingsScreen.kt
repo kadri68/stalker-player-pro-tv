@@ -44,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -66,6 +67,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
+    isTv: Boolean = true,
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
     dao: AppDao,
     settings: TvUserSettings,
     settingsStore: SettingsDataStore,
@@ -123,7 +126,7 @@ fun SettingsScreen(
     }
 
     val currentTheme = AppThemeId.fromId(settings.themeId)
-    val currentFontScale = TvFontScale.fromId(settings.fontScaleId)
+    val currentFontScale = TvFontScale.fromId(settings.fontScaleId, isTv)
     val clockCornerLabel = when (settings.clockCorner) {
         0 -> if (isAr) "أعلى اليمين" else "Top Right"
         1 -> if (isAr) "أعلى اليسار" else "Top Left"
@@ -300,7 +303,7 @@ fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .tvFocusItem(
+                                .tvFocusItem(focusRequester = focusRequester, 
                                     focusRequester = if (index == 0) firstRequester else null,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (active) {
@@ -350,7 +353,7 @@ fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .tvFocusItem(
+                                .tvFocusItem(focusRequester = focusRequester, 
                                     focusRequester = if (index == 0) firstRequester else null,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (active) {
@@ -391,7 +394,7 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .tvFocusItem(
+                            .tvFocusItem(focusRequester = focusRequester, 
                                 focusRequester = firstRequester,
                                 shape = RoundedCornerShape(10.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -425,7 +428,7 @@ fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .tvFocusItem(
+                                .tvFocusItem(focusRequester = focusRequester, 
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (active) {
                                         MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
@@ -513,7 +516,7 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Box(
                         modifier = Modifier
-                            .tvFocusItem(
+                            .tvFocusItem(focusRequester = focusRequester, 
                                 focusRequester = firstRequester,
                                 enabled = !isLoggingIn,
                                 shape = RoundedCornerShape(10.dp),
@@ -588,7 +591,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(18.dp))
                     Box(
                         modifier = Modifier
-                            .tvFocusItem(
+                            .tvFocusItem(focusRequester = focusRequester, 
                                 focusRequester = firstRequester,
                                 shape = RoundedCornerShape(10.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
@@ -610,6 +613,7 @@ fun SettingsScreen(
 
 @Composable
 private fun ClassicSettingsRow(
+    focusRequester: FocusRequester? = null,
     icon: ImageVector,
     title: String,
     valueText: String,
@@ -619,7 +623,7 @@ private fun ClassicSettingsRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .tvFocusItem(
+            .tvFocusItem(focusRequester = focusRequester, 
                 shape = RoundedCornerShape(12.dp),
                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surface,
                 onClick = onClick

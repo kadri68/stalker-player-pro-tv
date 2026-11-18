@@ -1,12 +1,15 @@
 package com.kadri.stalkerplayerpro
 
+import android.app.UiModeManager
+import android.content.Context
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
@@ -40,9 +42,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -79,6 +89,8 @@ class MainActivity : ComponentActivity() {
         val app = application as StalkerApp
 
         setContent {
+            val context = LocalContext.current
+            val isTv = remember { isTvDevice(context) }
             val settings by app.settingsStore.settingsFlow.collectAsState(initial = TvUserSettings())
             val isAr = settings.language == "ar"
             val layoutDir = if (isAr) LayoutDirection.Rtl else LayoutDirection.Ltr
@@ -86,13 +98,21 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(LocalLayoutDirection provides layoutDir) {
                 StalkerTvTheme(
                     themeId = AppThemeId.fromId(settings.themeId),
-                    fontScale = TvFontScale.fromId(settings.fontScaleId)
+                    fontScale = TvFontScale.fromId(settings.fontScaleId, isTvDefault = isTv)
                 ) {
-                    MainTvRoot(app = app, settings = settings, isAr = isAr)
+                    MainTvRoot(app = app, settings = settings, isAr = isAr, isTv = isTv)
                 }
             }
         }
     }
+}
+
+fun isTvDevice(context: Context): Boolean {
+    val uiModeManager = context.getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+    val isTvMode = uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    val hasLeanback = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    val hasTouch = context.packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    return isTvMode || (hasLeanback && !hasTouch)
 }
 
 private enum class TvTab(
@@ -112,18 +132,21 @@ private enum class TvTab(
 private fun MainTvRoot(
     app: StalkerApp,
     settings: TvUserSettings,
-    isAr: Boolean
+    isAr: Boolean,
+    isTv: Boolean
 ) {
     val dao = app.database.appDao()
     val activePortal by dao.observeActivePortal().collectAsState(initial = null)
     var selectedTab by remember { mutableIntStateOf(TvTab.PORTALS.index) }
     var activePlayback by remember { mutableStateOf<PlaybackRequest?>(null) }
     var headerClock by remember { mutableStateOf(LocaleUtils.formatClock()) }
-    val firstTabRequester = remember { FocusRequester() }
+
+    val tabRequesters = remember { List(TvTab.entries.size) { FocusRequester() } }
+    val contentFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        delay(120)
-        runCatching { firstTabRequester.requestFocus() }
+        delay(100)
+        runCatching { tabRequesters[selectedTab].requestFocus() }
         while (true) {
             delay(15_000)
             headerClock = LocaleUtils.formatClock()
@@ -148,70 +171,85 @@ private fun MainTvRoot(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        // شريط التبويبات العلوي مع توجيه صريح للسهم للأسفل نحو محتوى الشاشة
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface)
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .onPreviewKeyEvent { ev ->
+                    if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown) {
+                        val moved = runCatching { contentFocusRequester.requestFocus() }.isSuccess
+                        if (moved) return@onPreviewKeyEvent true
+                    }
+                    false
+                }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             LtrText(
                 text = "IPTV STALKER",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold
             )
-
-            Spacer(modifier = Modifier.width(8.dp))
 
             TvTab.entries.forEachIndexed { idx, tab ->
                 val isSelected = selectedTab == tab.index
                 Row(
                     modifier = Modifier
+                        .weight(1f, fill = false)
+                        .focusProperties {
+                            down = contentFocusRequester
+                        }
                         .tvFocusItem(
-                            focusRequester = if (idx == 0) firstTabRequester else null,
-                            shape = RoundedCornerShape(10.dp),
+                            focusRequester = tabRequesters[idx],
+                            shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (isSelected) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                             },
-                            onClick = { selectedTab = tab.index }
+                            onClick = {
+                                selectedTab = tab.index
+                                runCatching { contentFocusRequester.requestFocus() }
+                            }
                         )
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = tab.icon,
                         contentDescription = null,
                         tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = if (isAr) tab.titleAr else tab.titleEn,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.weight(1f))
 
             if (activePortal != null) {
                 Text(
                     text = activePortal!!.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.secondary
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.width(8.dp))
             }
 
             LtrText(
                 text = headerClock,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold
             )
@@ -224,6 +262,8 @@ private fun MainTvRoot(
                     dao = dao,
                     parentalPin = settings.parentalPin,
                     isAr = isAr,
+                    initialContentFocusRequester = contentFocusRequester,
+                    onGoToPortals = { selectedTab = TvTab.PORTALS.index },
                     onPlayChannel = { req -> activePlayback = req }
                 )
                 TvTab.MOVIES.index -> VodScreen(
@@ -231,6 +271,8 @@ private fun MainTvRoot(
                     dao = dao,
                     isSeriesMode = false,
                     isAr = isAr,
+                    initialContentFocusRequester = contentFocusRequester,
+                    onGoToPortals = { selectedTab = TvTab.PORTALS.index },
                     onPlayVod = { req -> activePlayback = req }
                 )
                 TvTab.SERIES.index -> VodScreen(
@@ -238,18 +280,23 @@ private fun MainTvRoot(
                     dao = dao,
                     isSeriesMode = true,
                     isAr = isAr,
+                    initialContentFocusRequester = contentFocusRequester,
+                    onGoToPortals = { selectedTab = TvTab.PORTALS.index },
                     onPlayVod = { req -> activePlayback = req }
                 )
                 TvTab.PORTALS.index -> PortalsScreen(
                     dao = dao,
                     isAr = isAr,
+                    initialContentFocusRequester = contentFocusRequester,
                     onPortalActivated = { selectedTab = TvTab.LIVE.index }
                 )
                 TvTab.SETTINGS.index -> SettingsScreen(
                     dao = dao,
                     settings = settings,
                     settingsStore = app.settingsStore,
-                    isAr = isAr
+                    isAr = isAr,
+                    isTv = isTv,
+                    initialContentFocusRequester = contentFocusRequester
                 )
             }
         }

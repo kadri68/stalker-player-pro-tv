@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -72,6 +73,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun VodScreen(
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onGoToPortals: () -> Unit = {},
     portal: PortalEntity?,
     dao: AppDao,
     isSeriesMode: Boolean,
@@ -290,7 +293,7 @@ fun VodScreen(
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
                     .padding(12.dp)
             ) {
-                TvSafeSearchBar(
+                TvSafeSearchBar(focusRequester = initialContentFocusRequester, 
                     query = searchQuery,
                     placeholder = if (isSeriesMode) {
                         if (isAr) "ابحث عن مسلسل..." else "Search series..."

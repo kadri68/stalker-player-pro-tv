@@ -10,82 +10,72 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.nio.charset.StandardCharsets
+
+data class SmartParseBreakdown(
+    val allExtracted: List<PortalEntity>,
+    val stalkerCount: Int,
+    val xtreamCount: Int,
+    val m3uCount: Int
+)
 
 /**
- * المحلل الذكي متعدد الصيغ (Smart Multi-Parser):
- * يستخرج حسابات Stalker و Xtream و M3U تلقائياً من النصوص المختلطة أو ملفات .txt
- * ويفحص صلاحيتها دفعة واحدة بالتوازي
+ * المحلل الذكي المطور (Smart Multi-Parser):
+ * يفرق بدقة تامة بين Stalker و Xtream و M3U داخل نفس الملف أو النص المختلط
+ * دون خلط عناوين MAC مع سيرفرات Xtream.
  */
 object SmartMultiParser {
 
-    private val urlRegex = Regex("""https?://[^\s"'<>]+""", RegexOption.IGNORE_CASE)
+    private val urlRegex = Regex("""https?://[^\s"'<>|]+""", RegexOption.IGNORE_CASE)
     private val macRegex = Regex("""\b([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b""")
+    private val hostLabelRegex = Regex("""(?:host|server|url|portal|xtream)\s*[:=]\s*(https?://[^\s"'<>|]+)""", RegexOption.IGNORE_CASE)
+    private val userLabelRegex = Regex("""(?:user|username|login|usr)\s*[:=]\s*([^\s"'<>|]+)""", RegexOption.IGNORE_CASE)
+    private val passLabelRegex = Regex("""(?:pass|password|pwd)\s*[:=]\s*([^\s"'<>|]+)""", RegexOption.IGNORE_CASE)
+    private val colonCredsRegex = Regex("""(https?://[^:\s]+(?::\d+)?):([^:\s/]+):([^:\s/]+)""", RegexOption.IGNORE_CASE)
 
-    fun extractPortalsFromText(rawText: String): List<PortalEntity> {
+    fun analyzeText(rawText: String): SmartParseBreakdown {
         val extracted = ArrayList<PortalEntity>()
         val seenKeys = HashSet<String>()
 
-        // 1. تقسيم النص إلى كتل أو أسطر لفحص كل جزء بدقة
-        val lines = rawText.lines()
-        var lastDetectedUrl: String? = null
-
-        for (rawLine in lines) {
-            val line = rawLine.trim()
-            if (line.isEmpty()) continue
-
-            val urlsInLine = urlRegex.findAll(line).map { it.value }.toList()
-            val macsInLine = macRegex.findAll(line).map { it.value.replace('-', ':').uppercase() }.toList()
-
-            // فحص روابط Xtream الكاملة (get.php أو player_api.php)
-            for (u in urlsInLine) {
-                val uri = runCatching { Uri.parse(u) }.getOrNull()
-                val user = uri?.getQueryParameter("username")
-                val pass = uri?.getQueryParameter("password")
-
-                if (!user.isNullOrBlank() && !pass.isNullOrBlank() && uri.host != null) {
-                    val portPart = if (uri.port != -1) ":${uri.port}" else ""
-                    val hostUrl = "${uri.scheme}://${uri.host}$portPart"
-                    val key = "XT|$hostUrl|$user|$pass"
-                    if (seenKeys.add(key)) {
-                        extracted.add(
-                            PortalEntity(
-                                name = "Xtream (${uri.host})",
-                                protocol = "XTREAM",
-                                url = hostUrl,
-                                username = user,
-                                password = pass
-                            )
-                        )
-                    }
-                } else if (u.contains(".m3u", ignoreCase = true) || u.contains("type=m3u", ignoreCase = true)) {
-                    val key = "M3U|$u"
-                    if (seenKeys.add(key)) {
-                        val hostLabel = uri?.host ?: "Playlist"
-                        extracted.add(
-                            PortalEntity(
-                                name = "M3U ($hostLabel)",
-                                protocol = "M3U",
-                                url = u
-                            )
-                        )
-                    }
-                } else {
-                    lastDetectedUrl = u
-                }
+        fun addUnique(entity: PortalEntity) {
+            val key = when (entity.protocol) {
+                "STALKER" -> "STK|${entity.url.trimEnd('/').lowercase()}|${entity.mac.uppercase()}"
+                "XTREAM" -> "XT|${entity.url.trimEnd('/').lowercase()}|${entity.username}|${entity.password}"
+                else -> "M3U|${entity.url.trim()}"
             }
+            if (seenKeys.add(key)) {
+                extracted.add(entity)
+            }
+        }
 
-            // ربط عنوان MAC مع الرابط في نفس السطر أو السطر السابق
-            if (macsInLine.isNotEmpty() && lastDetectedUrl != null) {
-                val hostLabel = runCatching { Uri.parse(lastDetectedUrl).host }.getOrNull() ?: "Stalker"
-                for (mac in macsInLine) {
-                    val key = "STK|$lastDetectedUrl|$mac"
-                    if (seenKeys.add(key)) {
-                        extracted.add(
+        // 1. استخراج جميع صيغ Xtream ذات التسميات الصريحة (Host + User + Pass) في أي موضع بالنص
+        val hostMatches = hostLabelRegex.findAll(rawText).toList()
+        val userMatches = userLabelRegex.findAll(rawText).toList()
+        val passMatches = passLabelRegex.findAll(rawText).toList()
+
+        if (hostMatches.isNotEmpty() && userMatches.isNotEmpty() && passMatches.isNotEmpty()) {
+            for (hMatch in hostMatches) {
+                val hPos = hMatch.range.first
+                val nearUser = userMatches.minByOrNull { kotlin.math.abs(it.range.first - hPos) }
+                val nearPass = passMatches.minByOrNull { kotlin.math.abs(it.range.first - hPos) }
+                if (nearUser != null && nearPass != null &&
+                    kotlin.math.abs(nearUser.range.first - hPos) < 350 &&
+                    kotlin.math.abs(nearPass.range.first - hPos) < 350
+                ) {
+                    val cleanHost = normalizeXtreamHost(hMatch.groupValues[1])
+                    val u = nearUser.groupValues[1].trim()
+                    val p = nearPass.groupValues[1].trim()
+                    if (cleanHost.isNotBlank() && u.isNotBlank() && p.isNotBlank()) {
+                        val hostLabel = runCatching { Uri.parse(cleanHost).host }.getOrNull() ?: "Xtream"
+                        addUnique(
                             PortalEntity(
-                                name = "Stalker ($hostLabel)",
-                                protocol = "STALKER",
-                                url = lastDetectedUrl,
-                                mac = mac
+                                name = "Xtream ($hostLabel)",
+                                protocol = "XTREAM",
+                                url = cleanHost,
+                                username = u,
+                                password = p
                             )
                         )
                     }
@@ -93,19 +83,16 @@ object SmartMultiParser {
             }
         }
 
-        // 2. دعم الصيغ النصية المنفصلة (Host: ... User: ... Pass: ...)
-        val hostMatch = Regex("""(?:host|server|url)\s*[:=]\s*(https?://[^\s]+)""", RegexOption.IGNORE_CASE).find(rawText)
-        val userMatch = Regex("""(?:user|username)\s*[:=]\s*([^\s]+)""", RegexOption.IGNORE_CASE).find(rawText)
-        val passMatch = Regex("""(?:pass|password)\s*[:=]\s*([^\s]+)""", RegexOption.IGNORE_CASE).find(rawText)
-        if (hostMatch != null && userMatch != null && passMatch != null) {
-            val h = hostMatch.groupValues[1].trimEnd('/')
-            val u = userMatch.groupValues[1]
-            val p = passMatch.groupValues[1]
-            val key = "XT|$h|$u|$p"
-            if (seenKeys.add(key)) {
-                extracted.add(
+        // 2. استخراج صيغة http://host:port:username:password
+        for (m in colonCredsRegex.findAll(rawText)) {
+            val h = normalizeXtreamHost(m.groupValues[1])
+            val u = m.groupValues[2].trim()
+            val p = m.groupValues[3].trim()
+            if (u.isNotBlank() && p.isNotBlank() && !macRegex.matches(u)) {
+                val hostLabel = runCatching { Uri.parse(h).host }.getOrNull() ?: "Xtream"
+                addUnique(
                     PortalEntity(
-                        name = "Xtream (${runCatching { Uri.parse(h).host }.getOrNull() ?: "Server"})",
+                        name = "Xtream ($hostLabel)",
                         protocol = "XTREAM",
                         url = h,
                         username = u,
@@ -115,11 +102,195 @@ object SmartMultiParser {
             }
         }
 
-        return extracted
+        // 3. تحليل النص سطراً بسطر مع عزل السياق (للتفريق الصارم بين Stalker و Xtream و M3U)
+        val lines = rawText.lines()
+        var pendingStalkerUrl: String? = null
+        var pendingStalkerLineIdx = -10
+        var pendingMacs = mutableListOf<String>()
+        var pendingMacLineIdx = -10
+
+        for (i in lines.indices) {
+            val line = lines[i].trim()
+            if (line.isEmpty()) {
+                // سطر فارغ يفصل بين الكتل لمنع تداخل Stalker مع Xtream
+                if (i - pendingStalkerLineIdx > 2) pendingStalkerUrl = null
+                if (i - pendingMacLineIdx > 2) pendingMacs.clear()
+                continue
+            }
+
+            // فحص إذا كان السطر يحتوي على User/Pass بدون Host: صريح (مثل رابط في سطر وتحته User و Pass)
+            val lineUser = userLabelRegex.find(line)?.groupValues?.getOrNull(1)
+            val linePass = passLabelRegex.find(line)?.groupValues?.getOrNull(1)
+            if (lineUser != null || linePass != null) {
+                // هذا بلوك Xtream، نلغي أي ربط مع Stalker فوراً
+                pendingStalkerUrl = null
+                val windowText = lines.subList(maxOf(0, i - 2), minOf(lines.size, i + 3)).joinToString("\n")
+                val wUrl = urlRegex.find(windowText)?.value
+                val wUser = userLabelRegex.find(windowText)?.groupValues?.getOrNull(1)
+                val wPass = passLabelRegex.find(windowText)?.groupValues?.getOrNull(1)
+                if (!wUrl.isNullOrBlank() && !wUser.isNullOrBlank() && !wPass.isNullOrBlank()) {
+                    val cleanHost = normalizeXtreamHost(wUrl)
+                    val hostLabel = runCatching { Uri.parse(cleanHost).host }.getOrNull() ?: "Xtream"
+                    addUnique(
+                        PortalEntity(
+                            name = "Xtream ($hostLabel)",
+                            protocol = "XTREAM",
+                            url = cleanHost,
+                            username = wUser.trim(),
+                            password = wPass.trim()
+                        )
+                    )
+                }
+                continue
+            }
+
+            val urlsInLine = urlRegex.findAll(line).map { it.value }.toList()
+            val macsInLine = macRegex.findAll(line).map { it.value.replace('-', ':').uppercase() }.toList()
+
+            for (rawUrl in urlsInLine) {
+                val uri = runCatching { Uri.parse(rawUrl) }.getOrNull()
+                val qUser = uri?.getQueryParameter("username")
+                val qPass = uri?.getQueryParameter("password")
+
+                // أ) رابط Xtream عبر Query Parameters (get.php أو player_api.php)
+                if (!qUser.isNullOrBlank() && !qPass.isNullOrBlank() && uri.host != null) {
+                    pendingStalkerUrl = null
+                    val cleanHost = normalizeXtreamHost(rawUrl)
+                    addUnique(
+                        PortalEntity(
+                            name = "Xtream (${uri.host})",
+                            protocol = "XTREAM",
+                            url = cleanHost,
+                            username = qUser.trim(),
+                            password = qPass.trim()
+                        )
+                    )
+                    continue
+                }
+
+                // ب) رابط Xtream عبر المسار (مثل http://host:port/live/user/pass/123.ts أو http://host:port/user/pass)
+                val pathSegments = uri?.pathSegments.orEmpty()
+                if (uri?.host != null && pathSegments.size >= 2 &&
+                    !rawUrl.contains("portal.php", true) &&
+                    !rawUrl.contains("/c", true) &&
+                    !rawUrl.endsWith(".m3u", true) &&
+                    !rawUrl.endsWith(".m3u8", true)
+                ) {
+                    val firstSeg = pathSegments[0].lowercase()
+                    val candidateUser = if (firstSeg in listOf("live", "movie", "series") && pathSegments.size >= 3) pathSegments[1] else pathSegments[0]
+                    val candidatePass = if (firstSeg in listOf("live", "movie", "series") && pathSegments.size >= 3) pathSegments[2] else pathSegments[1]
+                    if (candidateUser.isNotBlank() && candidatePass.isNotBlank() &&
+                        !candidateUser.contains(".") && !candidatePass.contains(".") &&
+                        candidateUser !in listOf("c", "stalker_portal", "portal.php", "player_api.php", "get.php")
+                    ) {
+                        pendingStalkerUrl = null
+                        val cleanHost = normalizeXtreamHost(rawUrl)
+                        addUnique(
+                            PortalEntity(
+                                name = "Xtream (${uri.host})",
+                                protocol = "XTREAM",
+                                url = cleanHost,
+                                username = candidateUser,
+                                password = candidatePass
+                            )
+                        )
+                        continue
+                    }
+                }
+
+                // ج) رابط M3U / M3U8 مباشر (بدون بيانات Xtream)
+                if (rawUrl.contains(".m3u", ignoreCase = true) || rawUrl.contains("type=m3u", ignoreCase = true)) {
+                    pendingStalkerUrl = null
+                    val hostLabel = uri?.host ?: "Playlist"
+                    addUnique(
+                        PortalEntity(
+                            name = "M3U ($hostLabel)",
+                            protocol = "M3U",
+                            url = rawUrl.trim()
+                        )
+                    )
+                    continue
+                }
+
+                // د) رابط مرشح لـ Stalker Portal (ينتظر MAC في نفس السطر أو ضمن 3 أسطر)
+                if (macsInLine.isNotEmpty()) {
+                    val hostLabel = uri?.host ?: "Stalker"
+                    for (mac in macsInLine) {
+                        addUnique(
+                            PortalEntity(
+                                name = "Stalker ($hostLabel)",
+                                protocol = "STALKER",
+                                url = rawUrl.trim(),
+                                mac = mac
+                            )
+                        )
+                    }
+                    pendingStalkerUrl = rawUrl.trim()
+                    pendingStalkerLineIdx = i
+                } else if (pendingMacs.isNotEmpty() && (i - pendingMacLineIdx) <= 3) {
+                    // حالة ظهور MAC في السطر السابق ورابط Stalker تحته
+                    val hostLabel = uri?.host ?: "Stalker"
+                    for (mac in pendingMacs) {
+                        addUnique(
+                            PortalEntity(
+                                name = "Stalker ($hostLabel)",
+                                protocol = "STALKER",
+                                url = rawUrl.trim(),
+                                mac = mac
+                            )
+                        )
+                    }
+                    pendingMacs.clear()
+                    pendingStalkerUrl = rawUrl.trim()
+                    pendingStalkerLineIdx = i
+                } else {
+                    pendingStalkerUrl = rawUrl.trim()
+                    pendingStalkerLineIdx = i
+                }
+            }
+
+            // إذا احتوى السطر على MAC فقط بدون رابط في نفس السطر
+            if (urlsInLine.isEmpty() && macsInLine.isNotEmpty()) {
+                val activeUrl = pendingStalkerUrl
+                if (activeUrl != null && (i - pendingStalkerLineIdx) <= 4) {
+                    val hostLabel = runCatching { Uri.parse(activeUrl).host }.getOrNull() ?: "Stalker"
+                    for (mac in macsInLine) {
+                        addUnique(
+                            PortalEntity(
+                                name = "Stalker ($hostLabel)",
+                                protocol = "STALKER",
+                                url = activeUrl,
+                                mac = mac
+                            )
+                        )
+                    }
+                    pendingStalkerLineIdx = i
+                } else {
+                    pendingMacs.addAll(macsInLine)
+                    pendingMacLineIdx = i
+                }
+            }
+        }
+
+        val stkCount = extracted.count { it.protocol == "STALKER" }
+        val xtCount = extracted.count { it.protocol == "XTREAM" }
+        val m3uCount = extracted.count { it.protocol == "M3U" }
+        return SmartParseBreakdown(extracted, stkCount, xtCount, m3uCount)
+    }
+
+    fun extractPortalsFromText(rawText: String): List<PortalEntity> =
+        analyzeText(rawText).allExtracted
+
+    private fun normalizeXtreamHost(rawUrl: String): String {
+        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return rawUrl.trim().trimEnd('/')
+        val scheme = uri.scheme ?: "http"
+        val host = uri.host ?: return rawUrl.trim().trimEnd('/')
+        val portPart = if (uri.port != -1) ":${uri.port}" else ""
+        return "$scheme://$host$portPart"
     }
 
     /**
-     * فحص صلاحية قائمة الحسابات دفعة واحدة بالتوازي وإرجاع الشغالة منها فقط
+     * فحص ذكي متوازي لصلاحية الحسابات حسب نوع كل بروتوكول بدقة
      */
     suspend fun filterWorkingAccounts(portals: List<PortalEntity>): List<PortalEntity> = coroutineScope {
         val semaphore = Semaphore(4)
@@ -133,19 +304,37 @@ object SmartMultiParser {
                         }
                         "XTREAM" -> {
                             val status = XtreamApiClient.checkAccount(portal.url, portal.username, portal.password)
-                            if (status.isValid) portal.copy(expiryTimestampMs = status.expiryTimestampMs, statusText = status.statusText) else null
+                            if (status.isValid) {
+                                portal.copy(expiryTimestampMs = status.expiryTimestampMs, statusText = status.statusText)
+                            } else null
                         }
                         "M3U" -> {
-                            val ok = runCatching {
-                                val req = Request.Builder().url(portal.url).head().build()
-                                HttpClientProvider.client.newCall(req).execute().use { it.isSuccessful }
-                            }.getOrDefault(false)
-                            if (ok) portal.copy(statusText = "Active") else null
+                            val validM3u = verifyM3uStreamHeader(portal.url)
+                            if (validM3u) portal.copy(statusText = "Active") else null
                         }
                         else -> null
                     }
                 }
             }
         }.awaitAll().filterNotNull()
+    }
+
+    private fun verifyM3uStreamHeader(url: String): Boolean {
+        return runCatching {
+            val req = Request.Builder().url(url.trim()).get().build()
+            HttpClientProvider.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return false
+                val stream = resp.body?.byteStream() ?: return false
+                BufferedReader(InputStreamReader(stream, StandardCharsets.UTF_8)).use { reader ->
+                    for (lineIdx in 0 until 12) {
+                        val line = reader.readLine()?.trim() ?: break
+                        if (line.startsWith("#EXTM3U", true) || line.startsWith("#EXTINF", true)) {
+                            return true
+                        }
+                    }
+                    false
+                }
+            }
+        }.getOrDefault(false)
     }
 }

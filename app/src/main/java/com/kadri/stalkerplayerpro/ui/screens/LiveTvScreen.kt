@@ -49,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -85,6 +86,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LiveTvScreen(
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onGoToPortals: () -> Unit = {},
     portal: PortalEntity?,
     dao: AppDao,
     parentalPin: String,
@@ -317,7 +320,7 @@ fun LiveTvScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    TvSafeSearchBar(
+                    TvSafeSearchBar(focusRequester = initialContentFocusRequester, 
                         query = searchQuery,
                         placeholder = if (isAr) "ابحث باسم القناة أو رقمها..." else "Search channel name or number...",
                         onQueryChange = { searchQuery = it },

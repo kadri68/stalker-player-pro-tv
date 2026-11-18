@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -63,6 +65,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,6 +114,7 @@ fun TvPlayerScreen(
 
     // حالات واجهة التحكم والقوائم
     var showControls by remember { mutableStateOf(true) }
+    var controlInteractTick by remember { mutableIntStateOf(0) }
     var showChannelDrawer by remember { mutableStateOf(false) }
     var showQuickMenu by remember { mutableStateOf(false) }
     var showSubtitleSearchDialog by remember { mutableStateOf(false) }
@@ -188,9 +192,9 @@ fun TvPlayerScreen(
     }
 
     // إخفاء شريط التحكم تلقائياً بعد 5 ثوانٍ
-    LaunchedEffect(showControls, anyOverlayModal, showSubtitleSyncBar) {
+    LaunchedEffect(showControls, anyOverlayModal, showSubtitleSyncBar, controlInteractTick) {
         if (showControls && !anyOverlayModal && !showSubtitleSyncBar) {
-            delay(5000)
+            delay(7500)
             showControls = false
         }
     }
@@ -455,7 +459,8 @@ fun TvPlayerScreen(
                 isAr = isAr,
                 onOpenSubtitles = { showSubtitleSearchDialog = true },
                 onOpenSync = { showSubtitleSyncBar = !showSubtitleSyncBar },
-                onOpenMenu = { showQuickMenu = true },
+                onOpenMenu = { controlInteractTick++; showQuickMenu = true },
+                onBackClick = onExitPlayer,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
@@ -633,6 +638,7 @@ private fun PlayerBottomControlBar(
     onOpenSubtitles: () -> Unit,
     onOpenSync: () -> Unit,
     onOpenMenu: () -> Unit,
+    onBackClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val extraColors = LocalTvExtraColors.current
@@ -649,6 +655,8 @@ private fun PlayerBottomControlBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            Box(modifier = Modifier.tvFocusItem(shape = RoundedCornerShape(8.dp), unfocusedBackgroundColor = Color.White.copy(alpha = 0.16f), onClick = onBackClick).padding(8.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = request.title,

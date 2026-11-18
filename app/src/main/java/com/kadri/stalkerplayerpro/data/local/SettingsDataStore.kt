@@ -14,7 +14,7 @@ private val Context.dataStore by preferencesDataStore(name = "stalker_tv_setting
 
 data class TvUserSettings(
     val themeId: Int = 0,
-    val fontScaleId: Int = 0, // 0=كبير, 1=كبير جداً, 2=ضخم, 3=ضخم جداً
+    val fontScaleId: Int = -1, // 0=كبير, 1=كبير جداً, 2=ضخم, 3=ضخم جداً
     val language: String = "ar", // "ar" or "en"
     val parentalPin: String = "0000",
     val clockCorner: Int = 0, // 0=TopEnd, 1=TopStart, 2=BottomEnd, 3=BottomStart
@@ -56,7 +56,7 @@ class SettingsDataStore(private val context: Context) {
     val settingsFlow: Flow<TvUserSettings> = context.dataStore.data.map { prefs ->
         TvUserSettings(
             themeId = prefs[KEY_THEME_ID] ?: 0,
-            fontScaleId = prefs[KEY_FONT_SCALE] ?: 0,
+            fontScaleId = prefs[KEY_FONT_SCALE] ?: -1,
             language = prefs[KEY_LANGUAGE] ?: "ar",
             parentalPin = prefs[KEY_PIN] ?: "0000",
             clockCorner = prefs[KEY_CLOCK_CORNER] ?: 0,

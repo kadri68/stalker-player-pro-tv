@@ -1,5 +1,7 @@
 package com.kadri.stalkerplayerpro.ui.screens
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileOpen
@@ -50,6 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -81,6 +85,7 @@ import org.json.JSONObject
 fun PortalsScreen(
     dao: AppDao,
     isAr: Boolean,
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
     onPortalActivated: (PortalEntity) -> Unit
 ) {
     val context = LocalContext.current
@@ -89,6 +94,7 @@ fun PortalsScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showSmartParserDialog by remember { mutableStateOf(false) }
+    var smartInitialText by remember { mutableStateOf("") }
     var selectedForMenu by remember { mutableStateOf<PortalEntity?>(null) }
     var selectedForQr by remember { mutableStateOf<PortalEntity?>(null) }
     var selectedForRename by remember { mutableStateOf<PortalEntity?>(null) }
@@ -98,6 +104,11 @@ fun PortalsScreen(
 
     val anyDialogOpen = showAddDialog || showSmartParserDialog || selectedForMenu != null ||
             selectedForQr != null || selectedForRename != null
+
+    fun readClipboardText(): String {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        return cm?.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+    }
 
     val txtImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -110,20 +121,34 @@ fun PortalsScreen(
                         context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
                     }.getOrDefault("")
                 }
-                val parsed = SmartMultiParser.extractPortalsFromText(rawText)
-                val working = SmartMultiParser.filterWorkingAccounts(parsed)
+                val breakdown = SmartMultiParser.analyzeText(rawText)
+                val working = SmartMultiParser.filterWorkingAccounts(breakdown.allExtracted)
                 if (working.isNotEmpty()) {
                     dao.insertPortals(working)
+                    if (portals.isEmpty()) {
+                        dao.getAllPortals().firstOrNull()?.let { dao.setActivePortal(it.id) }
+                    }
+                    val stkOk = working.count { it.protocol == "STALKER" }
+                    val xtOk = working.count { it.protocol == "XTREAM" }
+                    val m3uOk = working.count { it.protocol == "M3U" }
                     Toast.makeText(
                         context,
-                        if (isAr) "تم استيراد ${working.size} حساب شغال" else "Imported ${working.size} working accounts",
-                        Toast.LENGTH_SHORT
+                        if (isAr) {
+                            "تم استيراد ${working.size} شغال (Stalker: $stkOk | Xtream: $xtOk | M3U: $m3uOk)"
+                        } else {
+                            "Imported ${working.size} working (Stalker: $stkOk | Xtream: $xtOk | M3U: $m3uOk)"
+                        },
+                        Toast.LENGTH_LONG
                     ).show()
                 } else {
                     Toast.makeText(
                         context,
-                        if (isAr) "لم يتم العثور على حسابات شغالة في الملف" else "No working accounts found",
-                        Toast.LENGTH_SHORT
+                        if (isAr) {
+                            "تم اكتشاف (${breakdown.allExtracted.size}) حساب، الشغال منها: 0"
+                        } else {
+                            "Detected ${breakdown.allExtracted.size} accounts, Working: 0"
+                        },
+                        Toast.LENGTH_LONG
                     ).show()
                 }
                 isCheckingAll = false
@@ -158,21 +183,15 @@ fun PortalsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .blockFocusWhen(anyDialogOpen)
-                .padding(16.dp)
+                .padding(14.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = if (isAr) "البوابات والحسابات" else "Portals & Accounts",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
                 if (isCheckingAll) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(22.dp),
@@ -184,13 +203,26 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "إضافة حساب" else "Add Account",
                     icon = Icons.Default.Add,
+                    focusRequester = initialContentFocusRequester,
                     onClick = { showAddDialog = true }
+                )
+
+                ActionChipButton(
+                    label = if (isAr) "لصق ذكي" else "Smart Paste",
+                    icon = Icons.Default.ContentPaste,
+                    onClick = {
+                        smartInitialText = readClipboardText()
+                        showSmartParserDialog = true
+                    }
                 )
 
                 ActionChipButton(
                     label = if (isAr) "المحلل الذكي" else "Smart Parser",
                     icon = Icons.Default.AutoFixHigh,
-                    onClick = { showSmartParserDialog = true }
+                    onClick = {
+                        smartInitialText = ""
+                        showSmartParserDialog = true
+                    }
                 )
 
                 ActionChipButton(
@@ -199,7 +231,7 @@ fun PortalsScreen(
                     onClick = {
                         val ok = runCatching { txtImportLauncher.launch(arrayOf("text/plain", "*/*")) }.isSuccess
                         if (!ok) {
-                            Toast.makeText(context, if (isAr) "استخدم المحلل الذكي للصق النص" else "Use Smart Parser to paste text", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, if (isAr) "استخدم اللصق الذكي" else "Use Smart Paste", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
@@ -210,7 +242,7 @@ fun PortalsScreen(
                     onClick = {
                         val ok = runCatching { qrImportLauncher.launch(arrayOf("image/*")) }.isSuccess
                         if (!ok) {
-                            Toast.makeText(context, if (isAr) "متصفح الصور غير متوفر على هذا الجهاز" else "Gallery picker unavailable", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, if (isAr) "متصفح الصور غير متوفر" else "Gallery unavailable", Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
@@ -256,7 +288,7 @@ fun PortalsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             if (portals.isEmpty()) {
                 Column(
@@ -265,31 +297,30 @@ fun PortalsScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = if (isAr) {
-                            "لا توجد حسابات مضافة بعد"
-                        } else {
-                            "No accounts added yet"
-                        },
+                        text = if (isAr) "لا توجد حسابات مضافة بعد" else "No accounts added yet",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         ActionChipButton(
-                            label = if (isAr) "إضافة حساب يدوي" else "Add Account Manually",
+                            label = if (isAr) "إضافة حساب يدوي" else "Add Account",
                             icon = Icons.Default.Add,
                             onClick = { showAddDialog = true }
                         )
                         ActionChipButton(
-                            label = if (isAr) "لصق حسابات (المحلل الذكي)" else "Paste Accounts (Smart Parser)",
-                            icon = Icons.Default.AutoFixHigh,
-                            onClick = { showSmartParserDialog = true }
+                            label = if (isAr) "لصق ذكي من الحافظة" else "Smart Paste",
+                            icon = Icons.Default.ContentPaste,
+                            onClick = {
+                                smartInitialText = readClipboardText()
+                                showSmartParserDialog = true
+                            }
                         )
                     }
                 }
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     itemsIndexed(
@@ -347,6 +378,7 @@ fun PortalsScreen(
 
         if (showSmartParserDialog) {
             SmartParserDialog(
+                initialText = smartInitialText,
                 isAr = isAr,
                 onImportWorking = { workingList ->
                     scope.launch {
@@ -457,9 +489,9 @@ private fun PortalCardItem(
         modifier = Modifier
             .fillMaxWidth()
             .background(bg, RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(
             modifier = Modifier
@@ -470,7 +502,7 @@ private fun PortalCardItem(
                     onMenuClick = onOpenMenu,
                     onClick = onActivate
                 )
-                .padding(8.dp),
+                .padding(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -481,9 +513,9 @@ private fun PortalCardItem(
                 },
                 contentDescription = null,
                 tint = if (portal.isActive || isSelected) extraColors.badgeSuccess else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(22.dp)
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -491,17 +523,17 @@ private fun PortalCardItem(
                         Text(
                             text = "★ ",
                             color = Color(0xFFFFD600),
-                            style = MaterialTheme.typography.titleMedium
+                            style = MaterialTheme.typography.titleSmall
                         )
                     }
                     Text(
                         text = portal.name,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     LtrText(
                         text = "[${portal.protocol}]",
                         style = MaterialTheme.typography.labelSmall,
@@ -509,8 +541,8 @@ private fun PortalCardItem(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     LtrText(
                         text = portal.url,
                         style = MaterialTheme.typography.bodySmall,
@@ -520,6 +552,12 @@ private fun PortalCardItem(
                     if (portal.mac.isNotBlank()) {
                         LtrText(
                             text = portal.mac,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    } else if (portal.username.isNotBlank()) {
+                        LtrText(
+                            text = "U: ${portal.username}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.secondary
                         )
@@ -579,14 +617,14 @@ private fun SmallIconTvButton(
                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 0.7f else 0.25f),
                 onClick = onClick
             )
-            .padding(10.dp),
+            .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = if (enabled) tint else tint.copy(alpha = 0.3f),
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(18.dp)
         )
     }
 }
@@ -595,6 +633,7 @@ private fun SmallIconTvButton(
 private fun ActionChipButton(
     label: String,
     icon: ImageVector,
+    focusRequester: FocusRequester? = null,
     isDestructive: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -603,14 +642,15 @@ private fun ActionChipButton(
     Row(
         modifier = Modifier
             .tvFocusItem(
+                focusRequester = focusRequester,
                 shape = RoundedCornerShape(10.dp),
                 unfocusedBackgroundColor = bg,
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 11.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = fg, modifier = Modifier.size(18.dp))
+        Icon(imageVector = icon, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(6.dp))
         Text(text = label, style = MaterialTheme.typography.labelMedium, color = fg)
     }
@@ -632,9 +672,9 @@ private fun AddPortalDialog(
     TvModalDialog(
         title = if (isAr) "إضافة حساب جديد" else "Add New Account",
         onDismiss = onDismiss,
-        maxWidth = 580.dp
+        maxWidth = 560.dp
     ) { firstRequester ->
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ProtocolType.entries.forEachIndexed { idx, proto ->
                 val active = proto == selectedProtocol
                 Box(
@@ -646,7 +686,7 @@ private fun AddPortalDialog(
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedProtocol = proto }
                         )
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     LtrText(
@@ -658,7 +698,7 @@ private fun AddPortalDialog(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
@@ -666,7 +706,7 @@ private fun AddPortalDialog(
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
@@ -677,7 +717,7 @@ private fun AddPortalDialog(
 
         when (selectedProtocol) {
             ProtocolType.STALKER -> {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 OutlinedTextField(
                     value = mac,
                     onValueChange = { mac = it },
@@ -687,7 +727,7 @@ private fun AddPortalDialog(
                 )
             }
             ProtocolType.XTREAM -> {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = username,
@@ -708,7 +748,7 @@ private fun AddPortalDialog(
             ProtocolType.M3U -> Unit
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Box(
                 modifier = Modifier
@@ -732,7 +772,7 @@ private fun AddPortalDialog(
                             }
                         }
                     )
-                    .padding(horizontal = 24.dp, vertical = 10.dp)
+                    .padding(horizontal = 22.dp, vertical = 9.dp)
             ) {
                 Text(
                     text = if (isAr) "حفظ وفحص" else "Save & Check",
@@ -746,57 +786,91 @@ private fun AddPortalDialog(
 
 @Composable
 private fun SmartParserDialog(
+    initialText: String,
     isAr: Boolean,
     onImportWorking: (List<PortalEntity>) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var rawText by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var rawText by remember { mutableStateOf(initialText) }
     var isScanning by remember { mutableStateOf(false) }
     var resultSummary by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
+    val previewBreakdown = remember(rawText) { SmartMultiParser.analyzeText(rawText) }
+
     TvModalDialog(
-        title = if (isAr) "المحلل الذكي متعدد الصيغ" else "Smart Multi-Parser",
+        title = if (isAr) "المحلل واللصق الذكي (Stalker / Xtream / M3U)" else "Smart Multi-Parser & Paste",
         onDismiss = onDismiss,
-        maxWidth = 620.dp
+        maxWidth = 640.dp
     ) { firstRequester ->
-        Text(
-            text = if (isAr) {
-                "الصق هنا أي نص يحتوي على روابط Stalker + MAC أو روابط Xtream أو M3U وسيتم استخراجها وفحص الشغال منها تلقائياً:"
-            } else {
-                "Paste mixed text containing Stalker + MAC, Xtream URLs, or M3U links to auto-extract and verify working accounts:"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            LtrText(
+                text = "Stalker: ${previewBreakdown.stalkerCount}  |  Xtream: ${previewBreakdown.xtreamCount}  |  M3U: ${previewBreakdown.m3uCount}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.secondary
+            )
+
+            Row(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            val clip = cm?.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
+                            if (clip.isNotBlank()) {
+                                rawText = clip
+                            } else {
+                                Toast.makeText(context, if (isAr) "الحافظة فارغة" else "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.ContentPaste, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isAr) "لصق من الحافظة" else "Paste Clipboard",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
         OutlinedTextField(
             value = rawText,
             onValueChange = { rawText = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(140.dp),
-            placeholder = { Text("http://portal.example.com/c/  00:1A:79:XX:XX:XX ...") }
+                .height(120.dp),
+            placeholder = { Text("Stalker (URL + MAC) / Xtream (Host, User, Pass) / M3U...") }
         )
 
         if (resultSummary.isNotBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = resultSummary,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.secondary
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (isScanning) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(12.dp))
+                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(10.dp))
             }
             Box(
                 modifier = Modifier
@@ -808,26 +882,38 @@ private fun SmartParserDialog(
                         onClick = {
                             scope.launch {
                                 isScanning = true
-                                val extracted = SmartMultiParser.extractPortalsFromText(rawText)
-                                val working = SmartMultiParser.filterWorkingAccounts(extracted)
+                                val breakdown = SmartMultiParser.analyzeText(rawText)
+                                val working = SmartMultiParser.filterWorkingAccounts(breakdown.allExtracted)
                                 isScanning = false
                                 if (working.isNotEmpty()) {
+                                    val stkOk = working.count { it.protocol == "STALKER" }
+                                    val xtOk = working.count { it.protocol == "XTREAM" }
+                                    val m3uOk = working.count { it.protocol == "M3U" }
+                                    Toast.makeText(
+                                        context,
+                                        if (isAr) {
+                                            "تمت إضافة ${working.size} شغال (Stalker: $stkOk | Xtream: $xtOk | M3U: $m3uOk)"
+                                        } else {
+                                            "Added ${working.size} working (Stalker: $stkOk | Xtream: $xtOk | M3U: $m3uOk)"
+                                        },
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                     onImportWorking(working)
                                     onDismiss()
                                 } else {
                                     resultSummary = if (isAr) {
-                                        "تم استخراج ${extracted.size} حساب، الشغال منها: 0"
+                                        "المكتشف: Stalker(${breakdown.stalkerCount}), Xtream(${breakdown.xtreamCount}), M3U(${breakdown.m3uCount}) — الشغال: 0"
                                     } else {
-                                        "Extracted ${extracted.size} accounts, Working: 0"
+                                        "Detected: Stalker(${breakdown.stalkerCount}), Xtream(${breakdown.xtreamCount}), M3U(${breakdown.m3uCount}) — Working: 0"
                                     }
                                 }
                             }
                         }
                     )
-                    .padding(horizontal = 22.dp, vertical = 10.dp)
+                    .padding(horizontal = 20.dp, vertical = 9.dp)
             ) {
                 Text(
-                    text = if (isAr) "تحليل وفحص وإضافة الشغال" else "Parse, Verify & Import",
+                    text = if (isAr) "فحص وإضافة الحسابات الشغالة" else "Verify & Import Working",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimary
                 )
