@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- Dark High-Contrast TV Background -->
+    <path
+        android:fillColor="#0A1128"
+        android:pathData="M0,0 L320,0 L320,180 L0,180 Z" />
+
+    <!-- Subtle Accent Border -->
+    <path
+        android:pathData="M6,6 L314,6 L314,174 L6,174 Z"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.5" />
+
+    <!-- Left TV Screen & Play Icon -->
+    <path
+        android:fillColor="#132248"
+        android:pathData="M28,54 L94,54 Q100,54 100,60 L100,114 Q100,120 94,120 L28,120 Q22,120 22,114 L22,60 Q22,54 28,54 Z"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3" />
+    <path
+        android:pathData="M46,128 L76,128"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFD600"
+        android:pathData="M53,73 L74,87 L53,101 Z" />
+
+    <!-- IPTV Vector Text (Cyan) -->
+    <path
+        android:pathData="M118,62 L118,86 M134,86 L134,62 L148,62 Q154,62 154,68 Q154,74 148,74 L134,74 M166,62 L186,62 M176,62 L176,86 M196,62 L206,86 L216,62"
+        android:strokeColor="#00E5FF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="4.5" />
+
+    <!-- STALKER Vector Text (White) -->
+    <path
+        android:pathData="M130,102 L118,102 Q114,102 114,107 Q114,112 118,112 L126,112 Q130,112 130,118 Q130,123 126,123 L114,123 M140,102 L158,102 M149,102 L149,123 M166,123 L175,102 L184,123 M169,116 L181,116 M194,102 L194,123 L207,123 M217,102 L217,123 M231,102 L218,113 L232,123 M255,102 L242,102 L242,123 L255,123 M242,112 L252,112 M266,123 L266,102 L278,102 Q283,102 283,107 Q283,112 278,112 L266,112 M276,112 L284,123"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="4" />
+</vector>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Play Emblem -->
+    <path
+        android:fillColor="#FFD600"
+        android:pathData="M48,26 L64,35 L48,44 Z" />
+
+    <!-- IPTV (Cyan) -->
+    <path
+        android:pathData="M31,52 L31,63 M39,63 L39,52 L45,52 Q48,52 48,55 Q48,58 45,58 L39,58 M54,52 L63,52 M58.5,52 L58.5,63 M68,52 L73,63 L78,52"
+        android:strokeColor="#00E5FF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2.4" />
+
+    <!-- STALKER (White) -->
+    <path
+        android:pathData="M29,70 L24,70 Q22,70 22,72.5 Q22,75 24,75 L27,75 Q29,75 29,77.5 Q29,80 27,80 L22,80 M33,70 L41,70 M37,70 L37,80 M44,80 L48,70 L52,80 M45.5,77 L50.5,77 M56,70 L56,80 L61,80 M65,70 L65,80 M71,70 L65.5,75 L71.5,80 M80,70 L75,70 L75,80 L80,80 M75,75 L79,75 M84,80 L84,70 L89,70 Q91,70 91,72.5 Q91,75 89,75 L84,75 M88.5,75 L91.5,80"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2" />
+</vector>

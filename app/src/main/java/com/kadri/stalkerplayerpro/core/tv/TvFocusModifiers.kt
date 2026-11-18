@@ -1,0 +1,139 @@
+package com.kadri.stalkerplayerpro.core.tv
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.kadri.stalkerplayerpro.core.theme.LocalTvExtraColors
+
+/**
+ * مكون تركيز موحد للتلفاز بعقدة تركيز واحدة فقط (Single Focus Node)
+ * يمنع تداخل focusable مع clickable ويستجيب فوراً لأزرار الريموت (OK, LongPress, MENU)
+ */
+fun Modifier.tvFocusItem(
+    enabled: Boolean = true,
+    focusRequester: FocusRequester? = null,
+    shape: Shape = RoundedCornerShape(10.dp),
+    focusedBorderColor: Color? = null,
+    unfocusedBorderColor: Color = Color.Transparent,
+    focusedBackgroundColor: Color? = null,
+    unfocusedBackgroundColor: Color = Color.Transparent,
+    borderWidth: Dp = 3.dp,
+    onFocusChangedCallback: ((Boolean) -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+    onMenuClick: (() -> Unit)? = null,
+    onClick: () -> Unit
+): Modifier = composed {
+    var isFocused by remember { mutableStateOf(false) }
+    var longPressHandled by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val extraColors = LocalTvExtraColors.current
+
+    val activeBorderColor = focusedBorderColor ?: extraColors.focusRing
+    val activeBgColor = focusedBackgroundColor ?: MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+
+    val currentBorderColor = if (isFocused && enabled) activeBorderColor else unfocusedBorderColor
+    val currentBorderWidth = if (isFocused && enabled) borderWidth else if (unfocusedBorderColor != Color.Transparent) 1.dp else 0.dp
+    val currentBgColor = if (isFocused && enabled) activeBgColor else unfocusedBackgroundColor
+
+    val baseModifier = if (focusRequester != null) {
+        this.focusRequester(focusRequester)
+    } else {
+        this
+    }
+
+    baseModifier
+        .clip(shape)
+        .background(currentBgColor, shape)
+        .then(
+            if (currentBorderWidth > 0.dp) {
+                Modifier.border(BorderStroke(currentBorderWidth, currentBorderColor), shape)
+            } else {
+                Modifier
+            }
+        )
+        .onFocusChanged { focusState ->
+            val nowFocused = focusState.isFocused
+            if (isFocused != nowFocused) {
+                isFocused = nowFocused
+                onFocusChangedCallback?.invoke(nowFocused)
+            }
+        }
+        .onPreviewKeyEvent { keyEvent ->
+            if (!enabled) return@onPreviewKeyEvent false
+
+            when (keyEvent.key) {
+                Key.Menu -> {
+                    if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.repeatCount == 0) {
+                        val action = onMenuClick ?: onLongClick
+                        if (action != null) {
+                            action.invoke()
+                            return@onPreviewKeyEvent true
+                        }
+                    }
+                    false
+                }
+
+                Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                    when (keyEvent.type) {
+                        KeyEventType.KeyDown -> {
+                            val repeat = keyEvent.nativeKeyEvent.repeatCount
+                            if (repeat == 0) {
+                                longPressHandled = false
+                            } else if (repeat >= 4 && !longPressHandled && onLongClick != null) {
+                                longPressHandled = true
+                                onLongClick.invoke()
+                            }
+                            true
+                        }
+
+                        KeyEventType.KeyUp -> {
+                            if (!longPressHandled) {
+                                onClick()
+                            }
+                            longPressHandled = false
+                            true
+                        }
+
+                        else -> false
+                    }
+                }
+
+                else -> false
+            }
+        }
+        .pointerInput(enabled, onClick, onLongClick) {
+            if (enabled) {
+                detectTapGestures(
+                    onLongPress = { onLongClick?.invoke() },
+                    onTap = { onClick() }
+                )
+            }
+        }
+        .focusable(enabled = enabled, interactionSource = interactionSource)
+}

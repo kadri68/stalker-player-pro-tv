@@ -1,0 +1,369 @@
+package com.kadri.stalkerplayerpro.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backspace
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.kadri.stalkerplayerpro.core.theme.LocalTvExtraColors
+import com.kadri.stalkerplayerpro.core.tv.LtrText
+import com.kadri.stalkerplayerpro.core.tv.TvFocusTrap
+import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+
+/**
+ * حاوية نافذة منبثقة مخصصة للتلفاز مع حصر التركيز (Focus Trap)
+ */
+@Composable
+fun TvModalDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    maxWidth: Dp = 560.dp,
+    restoreFocusRequester: FocusRequester? = null,
+    content: @Composable ColumnScope.(firstFocusRequester: FocusRequester) -> Unit
+) {
+    val extraColors = LocalTvExtraColors.current
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.78f)),
+        contentAlignment = Alignment.Center
+    ) {
+        TvFocusTrap(
+            restoreFocusRequester = restoreFocusRequester,
+            onDismiss = onDismiss
+        ) { firstRequester ->
+            Column(
+                modifier = Modifier
+                    .widthIn(min = 340.dp, max = maxWidth)
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                    .border(2.dp, extraColors.focusRing.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .tvFocusItem(
+                                shape = RoundedCornerShape(8.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = onDismiss
+                            )
+                            .padding(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                content(firstRequester)
+            }
+        }
+    }
+}
+
+data class TvMenuOption(
+    val id: String,
+    val label: String,
+    val icon: ImageVector? = null,
+    val isDestructive: Boolean = false
+)
+
+/**
+ * قائمة خيارات سريعة بالريموت (MENU / Long Press)
+ */
+@Composable
+fun TvActionMenuDialog(
+    title: String,
+    options: List<TvMenuOption>,
+    onSelect: (TvMenuOption) -> Unit,
+    onDismiss: () -> Unit
+) {
+    TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 460.dp) { firstRequester ->
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            itemsIndexed(
+                items = options,
+                key = { idx, opt -> "menu_opt_${opt.id}_$idx" }
+            ) { index, option ->
+                val textColor = if (option.isDestructive) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .tvFocusItem(
+                            focusRequester = if (index == 0) firstRequester else null,
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            onClick = {
+                                onDismiss()
+                                onSelect(option)
+                            }
+                        )
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (option.icon != null) {
+                        Icon(
+                            imageVector = option.icon,
+                            contentDescription = null,
+                            tint = textColor,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                    }
+                    Text(
+                        text = option.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = textColor,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * لوحة إدخال رمز PIN من 4 أرقام بالريموت للرقابة الأبوية
+ */
+@Composable
+fun TvPinDialog(
+    title: String,
+    isAr: Boolean,
+    errorMessage: String? = null,
+    onPinSubmitted: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+
+    TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 380.dp) { firstRequester ->
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(34.dp)
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // عرض الخانات الـ 4
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (i in 0 until 4) {
+                    val filled = i < pin.length
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(10.dp)
+                            )
+                            .border(
+                                2.dp,
+                                if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                RoundedCornerShape(10.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LtrText(
+                            text = if (filled) "*" else "-",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            if (!errorMessage.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val rows = listOf(
+                listOf("1", "2", "3"),
+                listOf("4", "5", "6"),
+                listOf("7", "8", "9"),
+                listOf("C", "0", "DEL")
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                rows.forEachIndexed { rIdx, row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEachIndexed { cIdx, key ->
+                            val isFirst = rIdx == 0 && cIdx == 0
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 84.dp, height = 46.dp)
+                                    .tvFocusItem(
+                                        focusRequester = if (isFirst) firstRequester else null,
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        onClick = {
+                                            when (key) {
+                                                "C" -> pin = ""
+                                                "DEL" -> if (pin.isNotEmpty()) pin = pin.dropLast(1)
+                                                else -> {
+                                                    if (pin.length < 4) {
+                                                        val updated = pin + key
+                                                        pin = updated
+                                                        if (updated.length == 4) {
+                                                            onPinSubmitted(updated)
+                                                            pin = ""
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (key == "DEL") {
+                                    Icon(
+                                        imageVector = Icons.Default.Backspace,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                } else {
+                                    LtrText(
+                                        text = key,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = if (isAr) "الرمز الافتراضي: 0000" else "Default PIN: 0000",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
+ * نافذة إدخال نص بسيط بالريموت (مثل إعادة تسمية قناة أو بوابة)
+ */
+@Composable
+fun TvTextInputDialog(
+    title: String,
+    initialValue: String,
+    confirmLabel: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var text by remember { mutableStateOf(initialValue) }
+
+    TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 480.dp) { firstRequester ->
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        focusRequester = firstRequester,
+                        shape = RoundedCornerShape(10.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                        onClick = {
+                            if (text.isNotBlank()) {
+                                onConfirm(text.trim())
+                                onDismiss()
+                            }
+                        }
+                    )
+                    .padding(horizontal = 24.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = confirmLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+    }
+}
