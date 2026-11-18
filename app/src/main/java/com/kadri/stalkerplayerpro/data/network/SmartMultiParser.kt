@@ -183,7 +183,7 @@ object SmartMultiParser {
                     val cleanHost = normalizeXtreamHost(rawUrl)
                     addUnique(
                         PortalEntity(
-                            name = shortPortalName(uri.host!!),
+                            name = shortPortalName(uri?.host ?: "Xtream"),
                             protocol = "XTREAM",
                             url = cleanHost,
                             username = qUser.trim(),
@@ -211,7 +211,7 @@ object SmartMultiParser {
                         val cleanHost = normalizeXtreamHost(rawUrl)
                         addUnique(
                             PortalEntity(
-                                name = shortPortalName(uri.host!!),
+                                name = shortPortalName(uri?.host ?: "Xtream"),
                                 protocol = "XTREAM",
                                 url = cleanHost,
                                 username = candidateUser,
