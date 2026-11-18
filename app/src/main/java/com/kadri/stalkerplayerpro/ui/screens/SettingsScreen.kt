@@ -67,12 +67,12 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
-    isTv: Boolean = true,
-    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
     dao: AppDao,
     settings: TvUserSettings,
     settingsStore: SettingsDataStore,
-    isAr: Boolean
+    isAr: Boolean,
+    isTv: Boolean = true,
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -126,7 +126,7 @@ fun SettingsScreen(
     }
 
     val currentTheme = AppThemeId.fromId(settings.themeId)
-    val currentFontScale = TvFontScale.fromId(settings.fontScaleId, isTv)
+    val currentFontScale = TvFontScale.fromId(settings.fontScaleId, isTvDefault = isTv)
     val clockCornerLabel = when (settings.clockCorner) {
         0 -> if (isAr) "أعلى اليمين" else "Top Right"
         1 -> if (isAr) "أعلى اليسار" else "Top Left"
@@ -139,14 +139,14 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .blockFocusWhen(anyDialogOpen)
-                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
             Text(
                 text = if (isAr) "الإعدادات" else "Settings",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.primary
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -158,6 +158,7 @@ fun SettingsScreen(
                         title = if (isAr) "ثيمات الواجهة (6 ثيمات)" else "Interface Themes (6 Themes)",
                         valueText = if (isAr) currentTheme.titleAr else currentTheme.titleEn,
                         isAr = isAr,
+                        focusRequester = initialContentFocusRequester,
                         onClick = { showThemeDialog = true }
                     )
                 }
@@ -179,7 +180,7 @@ fun SettingsScreen(
                 item(key = "set_font") {
                     ClassicSettingsRow(
                         icon = Icons.Default.FormatSize,
-                        title = if (isAr) "حجم خط الواجهة للتلفاز" else "TV Interface Font Size",
+                        title = if (isAr) "حجم خط الواجهة (الهاتف والتلفاز)" else "Interface Font Size",
                         valueText = if (isAr) currentFontScale.labelAr else currentFontScale.labelEn,
                         isAr = isAr,
                         onClick = { showFontDialog = true }
@@ -280,7 +281,7 @@ fun SettingsScreen(
                     ClassicSettingsRow(
                         icon = Icons.Default.Info,
                         title = if (isAr) "حول التطبيق ومعلومات المطور" else "About App & Developer",
-                        valueText = "v1.1.0",
+                        valueText = "v1.2.0",
                         isAr = isAr,
                         onClick = { showAboutDialog = true }
                     )
@@ -303,7 +304,7 @@ fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .tvFocusItem(focusRequester = focusRequester, 
+                                .tvFocusItem(
                                     focusRequester = if (index == 0) firstRequester else null,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (active) {
@@ -343,17 +344,20 @@ fun SettingsScreen(
 
         if (showFontDialog) {
             TvModalDialog(
-                title = if (isAr) "حجم خط الواجهة للتلفاز" else "TV Interface Font Size",
+                title = if (isAr) "حجم خط الواجهة" else "Interface Font Size",
                 onDismiss = { showFontDialog = false },
                 maxWidth = 460.dp
             ) { firstRequester ->
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TvFontScale.entries.forEachIndexed { index, scale ->
-                        val active = scale.id == settings.fontScaleId
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    itemsIndexed(
+                        items = TvFontScale.entries,
+                        key = { idx, sc -> "font_opt_${sc.id}_$idx" }
+                    ) { index, scale ->
+                        val active = scale.id == currentFontScale.id
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .tvFocusItem(focusRequester = focusRequester, 
+                                .tvFocusItem(
                                     focusRequester = if (index == 0) firstRequester else null,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (active) {
@@ -394,7 +398,7 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .tvFocusItem(focusRequester = focusRequester, 
+                            .tvFocusItem(
                                 focusRequester = firstRequester,
                                 shape = RoundedCornerShape(10.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -428,7 +432,7 @@ fun SettingsScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .tvFocusItem(focusRequester = focusRequester, 
+                                .tvFocusItem(
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (active) {
                                         MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
@@ -516,7 +520,7 @@ fun SettingsScreen(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Box(
                         modifier = Modifier
-                            .tvFocusItem(focusRequester = focusRequester, 
+                            .tvFocusItem(
                                 focusRequester = firstRequester,
                                 enabled = !isLoggingIn,
                                 shape = RoundedCornerShape(10.dp),
@@ -591,7 +595,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(18.dp))
                     Box(
                         modifier = Modifier
-                            .tvFocusItem(focusRequester = focusRequester, 
+                            .tvFocusItem(
                                 focusRequester = firstRequester,
                                 shape = RoundedCornerShape(10.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
@@ -613,40 +617,41 @@ fun SettingsScreen(
 
 @Composable
 private fun ClassicSettingsRow(
-    focusRequester: FocusRequester? = null,
     icon: ImageVector,
     title: String,
     valueText: String,
     isAr: Boolean,
+    focusRequester: FocusRequester? = null,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .tvFocusItem(focusRequester = focusRequester, 
+            .tvFocusItem(
+                focusRequester = focusRequester,
                 shape = RoundedCornerShape(12.dp),
                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surface,
                 onClick = onClick
             )
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(26.dp)
+            modifier = Modifier.size(22.dp)
         )
-        Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f)
         )
         Text(
             text = valueText,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary
         )
         Spacer(modifier = Modifier.width(8.dp))
@@ -654,7 +659,7 @@ private fun ClassicSettingsRow(
             imageVector = if (isAr) Icons.AutoMirrored.Filled.KeyboardArrowLeft else Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp)
+            modifier = Modifier.size(20.dp)
         )
     }
 }
