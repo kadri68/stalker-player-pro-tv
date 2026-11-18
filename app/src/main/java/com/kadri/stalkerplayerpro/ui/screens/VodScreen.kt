@@ -105,7 +105,7 @@ fun VodScreen(
 
     // نافذة اختيار الموسم والحلقة للمسلسلات
     var selectedSeriesForEpisodes by remember { mutableStateOf<VodItem?>(null) }
-    var seasonsMap by remember { mutableStateOf>>(emptyMap()) }
+    var seasonsMap: Map<Int, List<EpisodeItem>> by remember { mutableStateOf(emptyMap()) }
     var selectedSeasonNum by remember { mutableIntStateOf(1) }
     var isLoadingEpisodes by remember { mutableStateOf(false) }
 
