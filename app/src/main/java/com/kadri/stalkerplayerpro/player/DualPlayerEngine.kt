@@ -99,6 +99,8 @@ class DualPlayerController(
     private var isLiveStream: Boolean = false
     private var isManuallyPaused: Boolean = false
     private var lastReconnectAttemptMs: Long = 0L
+    private var engineNoticeShownAtMs: Long = 0L
+    private var selectedVlcSpuId: Int? = null
     private var hasAppliedInitialVlcAudioPref: Boolean = false
     private var hasAppliedInitialExoTextPref: Boolean = false
     private var hasAppliedInitialVlcSpuPref: Boolean = false
@@ -122,6 +124,7 @@ class DualPlayerController(
         hasAppliedInitialExoTextPref = false
         hasAppliedInitialVlcSpuPref = false
         embeddedSubtitleTracks = emptyList()
+        selectedVlcSpuId = null
         pendingSeekMs = startPositionMs.coerceAtLeast(0L)
         autoSwitchedForUrl = forceVlc
         hasRenderedFirstVideoFrame = false
@@ -248,10 +251,11 @@ class DualPlayerController(
 
             override fun onTracksChanged(tracks: Tracks) {
                 extractExoAudioTracks(tracks)
+                    exoPlayer?.let { refreshExoTextTracks(it) }
                 if (!autoSwitchedForUrl && (hasUnsupportedSurroundAudio(tracks) || hasUnsupportedVideoTrack(tracks))) {
                     autoSwitchedForUrl = true
                     val pos = player.currentPosition.coerceAtLeast(0L)
-                    engineStatusNotice = "Auto -> LibVLC"
+                    engineStatusNotice = "Auto -> LibVLC"; engineNoticeShownAtMs = System.currentTimeMillis()
                     startLibVlc(currentUrl, pos)
                 }
             }
@@ -260,7 +264,7 @@ class DualPlayerController(
                 if (!autoSwitchedForUrl && currentUrl.isNotBlank()) {
                     autoSwitchedForUrl = true
                     val pos = player.currentPosition.coerceAtLeast(0L)
-                    engineStatusNotice = "Fallback -> LibVLC"
+                    engineStatusNotice = "Fallback -> LibVLC"; engineNoticeShownAtMs = System.currentTimeMillis()
                     startLibVlc(currentUrl, pos)
                 } else if (isLiveStream && !isManuallyPaused && currentUrl.isNotBlank()) {
                     isReconnecting = true
@@ -651,6 +655,9 @@ class DualPlayerController(
     fun syncPositionTick(): Long {
         val pos = getLivePositionMs()
         currentPositionMs = pos
+        if (engineStatusNotice != null && !isReconnecting && System.currentTimeMillis() - engineNoticeShownAtMs >= 3000L) {
+            engineStatusNotice = null
+        }
         if (isLiveStream && currentUrl.isNotBlank() && !isManuallyPaused) {
             val exoNeedsReconnect = activeEngine == ActiveEngineType.EXOPLAYER &&
                 (isReconnecting || exoPlayer?.playbackState == Player.STATE_IDLE || exoPlayer?.playbackState == Player.STATE_ENDED)

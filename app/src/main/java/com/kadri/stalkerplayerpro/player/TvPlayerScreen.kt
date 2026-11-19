@@ -172,6 +172,12 @@ fun TvPlayerScreen(
     var showSubtitleStyleDialog by remember { mutableStateOf(false) }
     var showAudioTracksDialog by remember { mutableStateOf(false) }
     var showEmbeddedSubtitlesDialog by remember { mutableStateOf(false) }
+    var showEngineHudBadge by remember { mutableStateOf(true) }
+    LaunchedEffect(controller.activeEngine, controller.engineStatusNotice) {
+        showEngineHudBadge = true
+        delay(3000L)
+        showEngineHudBadge = false
+    }
 
     var surfaceWidthPx by remember { mutableFloatStateOf(1080f) }
     var dragStartX by remember { mutableFloatStateOf(0f) }
@@ -663,7 +669,7 @@ fun TvPlayerScreen(
         }
 
         // 7. إشعار التحويل التلقائي لـ LibVLC
-        controller.engineStatusNotice?.let { notice ->
+        if (showEngineHudBadge) controller.engineStatusNotice?.let { notice ->
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -763,12 +769,6 @@ fun TvPlayerScreen(
                     controlInteractTick++
                     showHistoryDrawer = true
                 },
-                onEnterPip = if (onEnterPip != null) {
-                    {
-                        showControls = false
-                        onEnterPip()
-                    }
-                } else null,
                 onOpenSubtitles = {
                     controlInteractTick++
                     showSubtitleSearchDialog = true
@@ -845,15 +845,6 @@ fun TvPlayerScreen(
         // 14. قائمة خيارات المشغل السريعة
         if (showQuickMenu) {
             val menuOptions = buildList {
-                if (onEnterPip != null) {
-                    add(
-                        TvMenuOption(
-                            id = "pip_mode",
-                            label = if (isAr) "نافذة داخل نافذة (PiP)" else "Picture-in-Picture (PiP)",
-                            icon = Icons.Default.PictureInPictureAlt
-                        )
-                    )
-                }
                 add(
                     TvMenuOption(
                         id = "watch_history",
@@ -2001,3 +1992,4 @@ private fun extractDigitChar(key: Key): Char? {
         else -> null
     }
 }
+
