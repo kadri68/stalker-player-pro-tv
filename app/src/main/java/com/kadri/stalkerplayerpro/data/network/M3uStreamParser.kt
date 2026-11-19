@@ -15,8 +15,13 @@ import java.nio.charset.StandardCharsets
 
 object M3uStreamParser {
 
-    private val logoRegex = Regex("""tvg-logo="([^"]*)"""")
-    private val groupRegex = Regex("""group-title="([^"]*)"""")
+    private fun extractAttrFast(line: String, key: String): String {
+        val idx = line.indexOf(key, ignoreCase = true)
+        if (idx == -1) return ""
+        val start = idx + key.length
+        val end = line.indexOf('"', start)
+        return if (end > start) line.substring(start, end) else ""
+    }
 
     suspend fun parseFromUrl(url: String, portalId: Long): Pair<List<CategoryItem>, List<ChannelItem>> =
         withContext(Dispatchers.IO) {
@@ -44,10 +49,10 @@ object M3uStreamParser {
         }
 
     fun parseFromStream(inputStream: InputStream, portalId: Long): Pair<List<CategoryItem>, List<ChannelItem>> {
-        val channels = ArrayList<ChannelItem>(512)
+        val channels = ArrayList<ChannelItem>(1024)
         val groupSet = LinkedHashSet<String>()
 
-        BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8)).use { reader ->
+        BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8), 65536).use { reader ->
             var pendingName = ""
             var pendingLogo = ""
             var pendingGroup = "General"
@@ -55,33 +60,35 @@ object M3uStreamParser {
 
             var line: String? = reader.readLine()
             while (line != null) {
-                val trimmed = line.trim().removePrefix("\uFEFF")
-                if (trimmed.startsWith("#EXTINF:", ignoreCase = true)) {
-                    pendingLogo = logoRegex.find(trimmed)?.groupValues?.getOrNull(1).orEmpty()
-                    pendingGroup = groupRegex.find(trimmed)?.groupValues?.getOrNull(1)?.ifBlank { "General" } ?: "General"
-                    val commaIdx = trimmed.lastIndexOf(',')
-                    pendingName = if (commaIdx != -1 && commaIdx + 1 < trimmed.length) {
-                        trimmed.substring(commaIdx + 1).trim()
-                    } else {
-                        "Channel ${index + 1}"
-                    }
-                } else if (trimmed.isNotEmpty() && !trimmed.startsWith("#")) {
-                    index++
-                    groupSet.add(pendingGroup)
-                    channels.add(
-                        ChannelItem(
-                            uniqueKey = "${portalId}_m3u_$index",
-                            id = index.toString(),
-                            number = index,
-                            name = pendingName.ifBlank { "Channel $index" },
-                            logoUrl = pendingLogo,
-                            categoryId = pendingGroup,
-                            streamCmdOrUrl = trimmed,
-                            epgNowTitle = ""
+                val trimmed = line.trim()
+                if (trimmed.isNotEmpty()) {
+                    if (trimmed.startsWith("#EXTINF:", ignoreCase = true)) {
+                        pendingLogo = extractAttrFast(trimmed, "tvg-logo=\"")
+                        pendingGroup = extractAttrFast(trimmed, "group-title=\"").ifBlank { "General" }
+                        val commaIdx = trimmed.lastIndexOf(',')
+                        pendingName = if (commaIdx != -1 && commaIdx + 1 < trimmed.length) {
+                            trimmed.substring(commaIdx + 1).trim()
+                        } else {
+                            "Channel ${index + 1}"
+                        }
+                    } else if (!trimmed.startsWith("#")) {
+                        index++
+                        groupSet.add(pendingGroup)
+                        channels.add(
+                            ChannelItem(
+                                uniqueKey = "${portalId}_m3u_$index",
+                                id = index.toString(),
+                                number = index,
+                                name = pendingName.ifBlank { "Channel $index" },
+                                logoUrl = pendingLogo,
+                                categoryId = pendingGroup,
+                                streamCmdOrUrl = trimmed,
+                                epgNowTitle = ""
+                            )
                         )
-                    )
-                    pendingName = ""
-                    pendingLogo = ""
+                        pendingName = ""
+                        pendingLogo = ""
+                    }
                 }
                 line = reader.readLine()
             }

@@ -51,8 +51,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -145,7 +151,7 @@ fun LiveTvScreen(
     var debouncedQuery by remember(portal.id) { mutableStateOf("") }
 
     LaunchedEffect(searchQuery) {
-        delay(450)
+        delay(350)
         debouncedQuery = searchQuery.trim()
     }
 
@@ -172,18 +178,19 @@ fun LiveTvScreen(
 
     fun loadLiveContent(forceRefresh: Boolean = false) {
         scope.launch {
-            isLoading = true
-            hasError = false
-
             if (!forceRefresh) {
                 val cached = PortalCacheStore.loadLiveCache(context, portal.id)
-                if (cached != null) {
+                if (cached != null && cached.second.isNotEmpty()) {
                     categories = cached.first
                     rawChannels = cached.second
                     isLoading = false
+                    hasError = false
                     return@launch
                 }
             }
+
+            isLoading = true
+            hasError = false
 
             when (portal.protocol) {
                 "XTREAM" -> {
@@ -255,19 +262,19 @@ fun LiveTvScreen(
     }
 
     val channelListState = rememberLazyListState()
-    val lastChannelRequester = remember { FocusRequester() }
+    val channelsEntryRequester = remember { FocusRequester() }
     val targetChannelIndex = remember(filteredChannels, lastFocusedChannelId) {
         if (lastFocusedChannelId != null) {
-            filteredChannels.indexOfFirst { it.id == lastFocusedChannelId }
-        } else -1
+            val found = filteredChannels.indexOfFirst { it.id == lastFocusedChannelId }
+            if (found >= 0) found else 0
+        } else 0
     }
 
-    // استعادة آخر قناة كان يقف عليها المؤشر عند الخروج من المشغّل أو الرجوع
-    LaunchedEffect(isLoading, filteredChannels.size, lastFocusedChannelId, anyPopupOpen) {
-        if (!isLoading && filteredChannels.isNotEmpty() && !anyPopupOpen && targetChannelIndex >= 0) {
+    LaunchedEffect(isLoading, lastFocusedChannelId, anyPopupOpen) {
+        if (!isLoading && filteredChannels.isNotEmpty() && !anyPopupOpen && lastFocusedChannelId != null) {
             runCatching { channelListState.scrollToItem(targetChannelIndex) }
             delay(70)
-            runCatching { lastChannelRequester.requestFocus() }
+            runCatching { channelsEntryRequester.requestFocus() }
         }
     }
 
@@ -279,11 +286,23 @@ fun LiveTvScreen(
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // عمود المجموعات: يستقبل التركيز مباشرة من السطر العلوي (DOWN) وينقل إلى القنوات بسلاسة (LEFT/RIGHT)
             Column(
                 modifier = Modifier
                     .width(240.dp)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown) {
+                            val moveToChannels = (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight)
+                            if (moveToChannels && filteredChannels.isNotEmpty()) {
+                                if (runCatching { channelsEntryRequester.requestFocus() }.isSuccess) {
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                        }
+                        false
+                    }
                     .padding(10.dp)
             ) {
                 Text(
@@ -301,21 +320,27 @@ fun LiveTvScreen(
                     itemsIndexed(
                         items = fullCategories,
                         key = { idx, cat -> "live_cat_${portal.id}_${cat.id}_$idx" }
-                    ) { _, cat ->
+                    ) { index, cat ->
                         val isSelected = cat.id == selectedCategoryId
                         val isLocked = cat.id in lockedIdSet && cat.id !in unlockedSessionGroups
                         val canLock = cat.id != "ALL" && cat.id != "FAV"
+                        val isEntryCategory = (index == 0 && selectedCategoryId == "ALL") || isSelected
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                // التنقل التلقائي بين المجموعات بمجرد المرور بالريموت دون الحاجة لزر OK
                                 .onFocusChanged { focusState ->
                                     if (focusState.isFocused && !isLocked && selectedCategoryId != cat.id) {
                                         selectedCategoryId = cat.id
                                     }
                                 }
+                                .focusProperties {
+                                    if (filteredChannels.isNotEmpty()) {
+                                        if (isAr) left = channelsEntryRequester else right = channelsEntryRequester
+                                    }
+                                }
                                 .tvFocusItem(
+                                    focusRequester = if (isEntryCategory) initialContentFocusRequester else null,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (isSelected) {
                                         MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
@@ -340,6 +365,9 @@ fun LiveTvScreen(
                                             pendingPinCategory = cat
                                         } else {
                                             selectedCategoryId = cat.id
+                                            if (filteredChannels.isNotEmpty()) {
+                                                runCatching { channelsEntryRequester.requestFocus() }
+                                            }
                                         }
                                     }
                                 )
@@ -369,11 +397,23 @@ fun LiveTvScreen(
                 }
             }
 
+            // عمود القنوات: يعيد المؤشر بسلاسة إلى المجموعات عند الضغط باتجاهها (RIGHT في العربية / LEFT في الإنجليزية)
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown) {
+                            val backToCategories = (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft)
+                            if (backToCategories) {
+                                if (runCatching { initialContentFocusRequester.requestFocus() }.isSuccess) {
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                        }
+                        false
+                    }
                     .padding(10.dp)
             ) {
                 Row(
@@ -385,7 +425,6 @@ fun LiveTvScreen(
                         query = searchQuery,
                         placeholder = if (isAr) "ابحث باسم القناة أو رقمها..." else "Search channel name or number...",
                         onQueryChange = { searchQuery = it },
-                        focusRequester = initialContentFocusRequester,
                         modifier = Modifier.weight(1f)
                     )
                     Box(
@@ -455,7 +494,7 @@ fun LiveTvScreen(
                                 ChannelRowCard(
                                     channel = channel,
                                     isFavorite = isFav,
-                                    focusRequester = if (index == targetChannelIndex) lastChannelRequester else null,
+                                    focusRequester = if (index == targetChannelIndex) channelsEntryRequester else null,
                                     onFocused = { onChannelFocused(channel.id) },
                                     onClick = {
                                         onChannelFocused(channel.id)

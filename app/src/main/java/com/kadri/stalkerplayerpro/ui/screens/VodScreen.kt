@@ -45,8 +45,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -138,32 +144,35 @@ fun VodScreen(
     val watchHistory by dao.observeWatchHistory(portal.id).collectAsState(initial = emptyList())
 
     LaunchedEffect(searchQuery) {
-        delay(450)
+        delay(350)
         debouncedQuery = searchQuery.trim()
         visibleCount = 30
     }
 
     fun fetchInitialData(catId: String = selectedCategoryId, forceRefresh: Boolean = false) {
         scope.launch {
-            isLoading = true
-            hasError = false
             visibleCount = 30
             currentStalkerPage = 1
 
             if (catId == "HISTORY") {
                 isLoading = false
+                hasError = false
                 return@launch
             }
 
             if (!forceRefresh) {
                 val cached = PortalCacheStore.loadVodCache(context, portal.id, isSeriesMode, catId)
-                if (cached != null) {
+                if (cached != null && cached.second.isNotEmpty()) {
                     if (cached.first.isNotEmpty()) categories = cached.first
                     allLoadedItems = cached.second
                     isLoading = false
+                    hasError = false
                     return@launch
                 }
             }
+
+            isLoading = true
+            hasError = false
 
             when (portal.protocol) {
                 "XTREAM" -> {
@@ -229,19 +238,19 @@ fun VodScreen(
     }
 
     val gridState = rememberLazyGridState()
-    val lastItemRequester = remember { FocusRequester() }
+    val itemsEntryRequester = remember { FocusRequester() }
     val targetItemIndex = remember(pagedItems, lastFocusedItemId) {
         if (lastFocusedItemId != null) {
-            pagedItems.indexOfFirst { it.id == lastFocusedItemId }
-        } else -1
+            val found = pagedItems.indexOfFirst { it.id == lastFocusedItemId }
+            if (found >= 0) found else 0
+        } else 0
     }
 
-    // استعادة آخر فيلم أو مسلسل كان يقف عليه المؤشر عند الخروج من المشغّل أو الرجوع
-    LaunchedEffect(isLoading, pagedItems.size, lastFocusedItemId, selectedSeriesForEpisodes) {
-        if (!isLoading && pagedItems.isNotEmpty() && selectedSeriesForEpisodes == null && targetItemIndex >= 0) {
+    LaunchedEffect(isLoading, lastFocusedItemId, selectedSeriesForEpisodes) {
+        if (!isLoading && pagedItems.isNotEmpty() && selectedSeriesForEpisodes == null && lastFocusedItemId != null) {
             runCatching { gridState.scrollToItem(targetItemIndex) }
             delay(70)
-            runCatching { lastItemRequester.requestFocus() }
+            runCatching { itemsEntryRequester.requestFocus() }
         }
     }
 
@@ -284,6 +293,17 @@ fun VodScreen(
                     .width(240.dp)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown) {
+                            val moveToGrid = (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight)
+                            if (moveToGrid && pagedItems.isNotEmpty()) {
+                                if (runCatching { itemsEntryRequester.requestFocus() }.isSuccess) {
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                        }
+                        false
+                    }
                     .padding(10.dp)
             ) {
                 Text(
@@ -305,25 +325,36 @@ fun VodScreen(
                     itemsIndexed(
                         items = fullCategories,
                         key = { idx, cat -> "vod_cat_${portal.id}_${isSeriesMode}_${cat.id}_$idx" }
-                    ) { _, cat ->
+                    ) { index, cat ->
                         val isSelected = cat.id == selectedCategoryId
+                        val isEntryCategory = (index == 0 && selectedCategoryId == "ALL") || isSelected
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                // التنقل الفوري بالريموت بين الأقسام دون الحاجة لزر OK
                                 .onFocusChanged { focusState ->
                                     if (focusState.isFocused && selectedCategoryId != cat.id) {
                                         selectedCategoryId = cat.id
                                     }
                                 }
+                                .focusProperties {
+                                    if (pagedItems.isNotEmpty()) {
+                                        if (isAr) left = itemsEntryRequester else right = itemsEntryRequester
+                                    }
+                                }
                                 .tvFocusItem(
+                                    focusRequester = if (isEntryCategory) initialContentFocusRequester else null,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (isSelected) {
                                         MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                                     } else {
                                         Color.Transparent
                                     },
-                                    onClick = { selectedCategoryId = cat.id }
+                                    onClick = {
+                                        selectedCategoryId = cat.id
+                                        if (pagedItems.isNotEmpty()) {
+                                            runCatching { itemsEntryRequester.requestFocus() }
+                                        }
+                                    }
                                 )
                                 .padding(horizontal = 10.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -355,6 +386,17 @@ fun VodScreen(
                     .weight(1f)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown) {
+                            val backToCategories = (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft)
+                            if (backToCategories) {
+                                if (runCatching { initialContentFocusRequester.requestFocus() }.isSuccess) {
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                        }
+                        false
+                    }
                     .padding(10.dp)
             ) {
                 Row(
@@ -370,7 +412,6 @@ fun VodScreen(
                             if (isAr) "ابحث عن فيلم..." else "Search movies..."
                         },
                         onQueryChange = { searchQuery = it },
-                        focusRequester = initialContentFocusRequester,
                         modifier = Modifier.weight(1f)
                     )
                     Box(
@@ -457,7 +498,7 @@ fun VodScreen(
                                 ) { index, item ->
                                     VodPosterCard(
                                         item = item,
-                                        focusRequester = if (index == targetItemIndex) lastItemRequester else null,
+                                        focusRequester = if (index == targetItemIndex) itemsEntryRequester else null,
                                         onFocused = { onItemFocused(item.id) },
                                         onClick = {
                                             onItemFocused(item.id)

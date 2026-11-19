@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -155,11 +156,11 @@ private fun MainTvRoot(
     val dao = app.database.appDao()
     val activePortal by dao.observeActivePortal().collectAsState(initial = null)
     var selectedTab by remember { mutableIntStateOf(TvTab.PORTALS.index) }
+    var focusedTabIndex by remember { mutableIntStateOf(-1) }
     var activePlayback by remember { mutableStateOf<PlaybackRequest?>(null) }
     var headerClock by remember { mutableStateOf(LocaleUtils.formatClock()) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
 
-    // ذاكرة حفظ آخر موضع للريموت في كل قسم
     var lastFocusedPortalId by remember { mutableLongStateOf(-1L) }
     var lastFocusedLiveChannelId by remember { mutableStateOf<String?>(null) }
     var lastFocusedMovieId by remember { mutableStateOf<String?>(null) }
@@ -168,7 +169,6 @@ private fun MainTvRoot(
     val tabRequesters = remember { List(TvTab.entries.size) { FocusRequester() } }
     val contentFocusRequester = remember { FocusRequester() }
 
-    // تهيئة البوابة الثابتة للقنوات العربية الحرة والمفتوحة المحدثة باستمرار
     LaunchedEffect(Unit) {
         val existingPortals = dao.getAllPortals()
         val freePortal = existingPortals.find { it.url == BUILTIN_FREE_AR_M3U_URL }
@@ -221,7 +221,7 @@ private fun MainTvRoot(
                 .blockFocusWhen(showExitConfirmDialog)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // الشريط العلوي المرن: يتأقلم مع تكبير الخط دون اقتطاع الأسماء ويميز تبويب «البوابات» بلون بارز
+            // الشريط العلوي بإطار تمرير ملون (Visor) يتنقل بين التبويبات يميناً ويساراً دون الحاجة لزر OK
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -229,6 +229,7 @@ private fun MainTvRoot(
                     .horizontalScroll(rememberScrollState())
                     .onPreviewKeyEvent { ev ->
                         if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown) {
+                            focusedTabIndex = -1
                             val moved = runCatching { contentFocusRequester.requestFocus() }.isSuccess
                             if (moved) return@onPreviewKeyEvent true
                         }
@@ -247,28 +248,50 @@ private fun MainTvRoot(
 
                 TvTab.entries.forEachIndexed { idx, tab ->
                     val isSelected = selectedTab == tab.index
+                    val isVisorFocused = focusedTabIndex == idx
                     val isPortalsTab = tab == TvTab.PORTALS
 
                     val tabBgColor = when {
+                        isVisorFocused -> Color(0xFF00E5FF)
                         isPortalsTab && isSelected -> Color(0xFFFFB300)
                         isPortalsTab -> Color(0xFFFFB300).copy(alpha = 0.28f)
                         isSelected -> MaterialTheme.colorScheme.primary
                         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
                     }
                     val tabContentColor = when {
+                        isVisorFocused -> Color.Black
                         isPortalsTab && isSelected -> Color.Black
                         isPortalsTab -> Color(0xFFFFD54F)
                         isSelected -> MaterialTheme.colorScheme.onPrimary
                         else -> MaterialTheme.colorScheme.onSurface
                     }
+                    val borderColor = when {
+                        isVisorFocused -> Color.White
+                        isPortalsTab -> Color(0xFFFFB300)
+                        else -> Color.Transparent
+                    }
 
                     Row(
                         modifier = Modifier
                             .then(
-                                if (isPortalsTab) {
-                                    Modifier.border(1.5.dp, Color(0xFFFFB300), RoundedCornerShape(8.dp))
+                                if (borderColor != Color.Transparent) {
+                                    Modifier.border(
+                                        width = if (isVisorFocused) 2.5.dp else 1.5.dp,
+                                        color = borderColor,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
                                 } else Modifier
                             )
+                            .onFocusChanged { fState ->
+                                if (fState.isFocused) {
+                                    focusedTabIndex = idx
+                                    if (selectedTab != tab.index) {
+                                        selectedTab = tab.index
+                                    }
+                                } else if (focusedTabIndex == idx) {
+                                    focusedTabIndex = -1
+                                }
+                            }
                             .focusProperties { down = contentFocusRequester }
                             .tvFocusItem(
                                 focusRequester = tabRequesters[idx],
@@ -276,6 +299,7 @@ private fun MainTvRoot(
                                 unfocusedBackgroundColor = tabBgColor,
                                 onClick = {
                                     selectedTab = tab.index
+                                    focusedTabIndex = -1
                                     runCatching { contentFocusRequester.requestFocus() }
                                 }
                             )
@@ -292,7 +316,7 @@ private fun MainTvRoot(
                         Text(
                             text = if (isAr) tab.titleAr else tab.titleEn,
                             style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isSelected || isPortalsTab) FontWeight.Bold else FontWeight.Medium,
+                            fontWeight = if (isSelected || isPortalsTab || isVisorFocused) FontWeight.Bold else FontWeight.Medium,
                             color = tabContentColor,
                             maxLines = 1,
                             softWrap = false

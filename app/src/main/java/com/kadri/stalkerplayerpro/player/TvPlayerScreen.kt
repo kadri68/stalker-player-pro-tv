@@ -1,11 +1,16 @@
 package com.kadri.stalkerplayerpro.player
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.media.AudioManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,30 +28,42 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SettingsEthernet
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -68,6 +85,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,6 +96,7 @@ import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.TvFocusTrap
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
+import com.kadri.stalkerplayerpro.data.local.FavoriteEntity
 import com.kadri.stalkerplayerpro.data.local.SettingsDataStore
 import com.kadri.stalkerplayerpro.data.local.TvUserSettings
 import com.kadri.stalkerplayerpro.data.local.WatchHistoryEntity
@@ -93,6 +112,13 @@ import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
 import com.kadri.stalkerplayerpro.ui.screens.resolvePlayableUrl
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 @Composable
 fun TvPlayerScreen(
@@ -104,12 +130,20 @@ fun TvPlayerScreen(
     onExitPlayer: () -> Unit
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val scope = rememberCoroutineScope()
 
     var currentRequest by remember { mutableStateOf(initialRequest) }
     var currentChannelIdx by remember { mutableIntStateOf(initialRequest.currentChannelIndex) }
     var previousChannelIdx by remember { mutableIntStateOf(initialRequest.currentChannelIndex) }
     var currentEpgTitle by remember { mutableStateOf(initialRequest.subtitleQueryHint) }
+
+    val favorites by dao.observeFavorites(currentRequest.portal.id, currentRequest.contentType)
+        .collectAsState(initial = emptyList())
+    val isCurrentFavorite = remember(favorites, currentRequest.itemId) {
+        favorites.any { it.itemId == currentRequest.itemId }
+    }
 
     val controller = remember { DualPlayerController(context, settings.preferredAudioLang) }
     val rootFocusRequester = remember { FocusRequester() }
@@ -124,6 +158,21 @@ fun TvPlayerScreen(
     var showSubtitleStyleDialog by remember { mutableStateOf(false) }
     var showAudioTracksDialog by remember { mutableStateOf(false) }
 
+    // حالات السحب باللمس للتحكم بالصوت والسطوع
+    var surfaceWidthPx by remember { mutableFloatStateOf(1080f) }
+    var dragStartX by remember { mutableFloatStateOf(0f) }
+    var volumeFraction by remember {
+        val maxV = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val curV = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        mutableFloatStateOf(curV.toFloat() / maxV.toFloat())
+    }
+    var brightnessFraction by remember {
+        val initialB = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
+        mutableFloatStateOf(initialB)
+    }
+    var activeGestureHud by remember { mutableStateOf<Pair<Boolean, Int>?>(null) } // true=Volume, false=Brightness
+    var gestureHudTick by remember { mutableIntStateOf(0) }
+
     var digitBuffer by remember { mutableStateOf("") }
 
     var subtitleCues by remember { mutableStateOf<List<SubtitleCue>>(emptyList()) }
@@ -136,6 +185,13 @@ fun TvPlayerScreen(
 
     val anyOverlayModal = showChannelDrawer || showQuickMenu || showSubtitleSearchDialog ||
             showSubtitleStyleDialog || showAudioTracksDialog
+
+    LaunchedEffect(gestureHudTick) {
+        if (activeGestureHud != null) {
+            delay(1300)
+            activeGestureHud = null
+        }
+    }
 
     LaunchedEffect(currentRequest.itemId, currentRequest.streamCmdOrUrl) {
         subtitleCues = emptyList()
@@ -190,7 +246,7 @@ fun TvPlayerScreen(
 
     LaunchedEffect(showControls, anyOverlayModal, showSubtitleSyncBar, controlInteractTick) {
         if (showControls && !anyOverlayModal && !showSubtitleSyncBar) {
-            delay(7500)
+            delay(8000)
             showControls = false
         }
     }
@@ -278,6 +334,36 @@ fun TvPlayerScreen(
         )
     }
 
+    fun toggleCurrentFavorite() {
+        scope.launch {
+            if (isCurrentFavorite) {
+                dao.removeFavorite(currentRequest.portal.id, currentRequest.contentType, currentRequest.itemId)
+                Toast.makeText(
+                    context,
+                    if (isAr) "تمت الإزالة من المفضلة" else "Removed from Favorites",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                dao.addFavorite(
+                    FavoriteEntity(
+                        portalId = currentRequest.portal.id,
+                        contentType = currentRequest.contentType,
+                        itemId = currentRequest.itemId,
+                        title = currentRequest.title,
+                        logoOrPoster = currentRequest.posterOrLogo,
+                        streamCmdOrUrl = currentRequest.streamCmdOrUrl,
+                        categoryId = ""
+                    )
+                )
+                Toast.makeText(
+                    context,
+                    if (isAr) "تمت الإضافة إلى المفضلة ★" else "Added to Favorites ★",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
     BackHandler {
         when {
             showSubtitleSyncBar -> showSubtitleSyncBar = false
@@ -286,17 +372,19 @@ fun TvPlayerScreen(
         }
     }
 
+    val isLive = currentRequest.contentType == "LIVE"
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .onSizeChanged { surfaceWidthPx = it.width.toFloat().coerceAtLeast(1f) }
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (anyOverlayModal) return@onPreviewKeyEvent false
 
                 if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
-                    val isLive = currentRequest.contentType == "LIVE"
                     val digit = extractDigitChar(event.key)
 
                     if (isLive && digit != null) {
@@ -363,11 +451,13 @@ fun TvPlayerScreen(
                 false
             }
     ) {
+        // 1. سطح عرض الفيديو
         DualVideoSurface(
             controller = controller,
             modifier = Modifier.fillMaxSize()
         )
 
+        // 2. طبقة اللمس والسحب على جانبي الشاشة (الصوت يميناً والسطوع يساراً)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -379,8 +469,122 @@ fun TvPlayerScreen(
                         }
                     )
                 }
+                .pointerInput(surfaceWidthPx) {
+                    detectVerticalDragGestures(
+                        onDragStart = { offset ->
+                            dragStartX = offset.x
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            val delta = -dragAmount / 480f
+                            val isRightSide = dragStartX > (surfaceWidthPx / 2f)
+                            if (isRightSide) {
+                                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                                volumeFraction = (volumeFraction + delta).coerceIn(0f, 1f)
+                                val targetVol = (volumeFraction * maxVol).roundToInt().coerceIn(0, maxVol)
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVol, 0)
+                                activeGestureHud = true to (volumeFraction * 100f).roundToInt()
+                                gestureHudTick++
+                            } else {
+                                brightnessFraction = (brightnessFraction + delta).coerceIn(0.02f, 1f)
+                                activity?.window?.let { win ->
+                                    val lp = win.attributes
+                                    lp.screenBrightness = brightnessFraction
+                                    win.attributes = lp
+                                }
+                                activeGestureHud = false to (brightnessFraction * 100f).roundToInt()
+                                gestureHudTick++
+                            }
+                        }
+                    )
+                }
         )
 
+        // 3. مؤشر الصوت والسطوع الوسطي عند السحب باللمس
+        activeGestureHud?.let { (isVolume, percent) ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(14.dp))
+                    .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 24.dp, vertical = 14.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isVolume) Icons.Default.VolumeUp else Icons.Default.BrightnessHigh,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    LtrText(
+                        text = "$percent%",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // 4. أزرار تبديل القنوات الجانبية باللمس أثناء البث المباشر
+        if (isLive && showControls && !anyOverlayModal && currentRequest.channelList.size > 1) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 14.dp)
+                    .size(48.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                controlInteractTick++
+                                if (isAr) switchToChannelAtIndex(currentChannelIdx + 1)
+                                else switchToChannelAtIndex(currentChannelIdx - 1)
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ChevronLeft,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 14.dp)
+                    .size(48.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                controlInteractTick++
+                                if (isAr) switchToChannelAtIndex(currentChannelIdx - 1)
+                                else switchToChannelAtIndex(currentChannelIdx + 1)
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+        }
+
+        // 5. طبقة الترجمة الخارجية
         SubtitleOverlayRenderer(
             cues = subtitleCues,
             videoPositionMs = controller.currentPositionMs,
@@ -390,6 +594,7 @@ fun TvPlayerScreen(
             bgAlpha = subBgAlpha
         )
 
+        // 6. مؤشر التحميل المؤقت
         if (controller.isBuffering) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
@@ -397,6 +602,7 @@ fun TvPlayerScreen(
             )
         }
 
+        // 7. إشعار التحويل التلقائي لـ LibVLC
         controller.engineStatusNotice?.let { notice ->
             Box(
                 modifier = Modifier
@@ -413,6 +619,7 @@ fun TvPlayerScreen(
             }
         }
 
+        // 8. الساعة الرقمية بأرقام (0-9)
         if (settings.showClock) {
             val clockAlignment = when (settings.clockCorner) {
                 1 -> Alignment.TopStart
@@ -436,6 +643,7 @@ fun TvPlayerScreen(
             }
         }
 
+        // 9. شارة رقم القناة المدخل بالأرقام
         if (digitBuffer.isNotEmpty()) {
             Box(
                 modifier = Modifier
@@ -452,6 +660,7 @@ fun TvPlayerScreen(
             }
         }
 
+        // 10. شريط تزامن الترجمة
         if (showSubtitleSyncBar && !anyOverlayModal) {
             SubtitleSyncFloatingBar(
                 offsetMs = subtitleOffsetMs,
@@ -464,22 +673,44 @@ fun TvPlayerScreen(
             )
         }
 
+        // 11. شريط التحكم السفلي المتكامل (الريموت واللمس)
         if (showControls && !anyOverlayModal) {
             PlayerBottomControlBar(
                 request = currentRequest,
                 epgTitle = currentEpgTitle,
                 controller = controller,
+                isFavorite = isCurrentFavorite,
                 isAr = isAr,
                 initialFocusRequester = bottomBarInitialFocusRequester,
                 onUserInteract = { controlInteractTick++ },
                 onBackClick = onExitPlayer,
+                onPrevChannel = {
+                    controlInteractTick++
+                    switchToChannelAtIndex(currentChannelIdx - 1)
+                },
+                onNextChannel = {
+                    controlInteractTick++
+                    switchToChannelAtIndex(currentChannelIdx + 1)
+                },
+                onToggleFavorite = {
+                    controlInteractTick++
+                    toggleCurrentFavorite()
+                },
                 onOpenSubtitles = {
                     controlInteractTick++
                     showSubtitleSearchDialog = true
                 },
+                onOpenSubtitleStyle = {
+                    controlInteractTick++
+                    showSubtitleStyleDialog = true
+                },
                 onOpenSync = {
                     controlInteractTick++
                     showSubtitleSyncBar = !showSubtitleSyncBar
+                },
+                onOpenAudioTracks = {
+                    controlInteractTick++
+                    showAudioTracksDialog = true
                 },
                 onOpenMenu = {
                     controlInteractTick++
@@ -489,6 +720,7 @@ fun TvPlayerScreen(
             )
         }
 
+        // 12. القائمة الجانبية للقنوات
         if (showChannelDrawer && currentRequest.channelList.isNotEmpty()) {
             LiveSideChannelDrawer(
                 channels = currentRequest.channelList,
@@ -502,12 +734,27 @@ fun TvPlayerScreen(
             )
         }
 
+        // 13. قائمة خيارات المشغل السريعة
         if (showQuickMenu) {
             val menuOptions = listOf(
+                TvMenuOption(
+                    id = "fav_toggle",
+                    label = if (isCurrentFavorite) {
+                        if (isAr) "إزالة من المفضلة ★" else "Remove from Favorites ★"
+                    } else {
+                        if (isAr) "إضافة إلى المفضلة ☆" else "Add to Favorites ☆"
+                    },
+                    icon = if (isCurrentFavorite) Icons.Default.Star else Icons.Default.StarOutline
+                ),
                 TvMenuOption(
                     id = "sub_search",
                     label = if (isAr) "بحث وتحميل ترجمة خارجية" else "Search External Subtitles",
                     icon = Icons.Default.Subtitles
+                ),
+                TvMenuOption(
+                    id = "sub_style",
+                    label = if (isAr) "لون وحجم خط الترجمة" else "Subtitle Color & Font Size",
+                    icon = Icons.Default.Palette
                 ),
                 TvMenuOption(
                     id = "sub_sync",
@@ -515,13 +762,8 @@ fun TvPlayerScreen(
                     icon = Icons.Default.Tune
                 ),
                 TvMenuOption(
-                    id = "sub_style",
-                    label = if (isAr) "مظهر الترجمة (اللون / الحجم / الخلفية)" else "Subtitle Appearance",
-                    icon = Icons.Default.ClosedCaption
-                ),
-                TvMenuOption(
                     id = "audio_track",
-                    label = if (isAr) "اختيار لغة الصوت" else "Audio Tracks",
+                    label = if (isAr) "اختيار مسار الصوت / المعلق" else "Audio Tracks / Commentary",
                     icon = Icons.Default.Audiotrack
                 ),
                 TvMenuOption(
@@ -540,9 +782,10 @@ fun TvPlayerScreen(
                 options = menuOptions,
                 onSelect = { opt ->
                     when (opt.id) {
+                        "fav_toggle" -> toggleCurrentFavorite()
                         "sub_search" -> showSubtitleSearchDialog = true
-                        "sub_sync" -> showSubtitleSyncBar = true
                         "sub_style" -> showSubtitleStyleDialog = true
+                        "sub_sync" -> showSubtitleSyncBar = true
                         "audio_track" -> showAudioTracksDialog = true
                         "switch_engine" -> controller.switchEngineManually()
                         "clock_corner" -> scope.launch {
@@ -555,6 +798,7 @@ fun TvPlayerScreen(
             )
         }
 
+        // 14. نافذة البحث عن الترجمة الخارجية
         if (showSubtitleSearchDialog) {
             val initialQuery = remember(currentRequest, currentEpgTitle) {
                 if (currentRequest.contentType == "LIVE") {
@@ -581,6 +825,7 @@ fun TvPlayerScreen(
             )
         }
 
+        // 15. نافذة تخصيص لون وحجم خط الترجمة
         if (showSubtitleStyleDialog) {
             SubtitleAppearanceDialog(
                 currentColor = subColor,
@@ -597,6 +842,7 @@ fun TvPlayerScreen(
             )
         }
 
+        // 16. نافذة اختيار مسار الصوت المناسب
         if (showAudioTracksDialog) {
             TvModalDialog(
                 title = if (isAr) "مسارات الصوت المتاحة" else "Available Audio Tracks",
@@ -605,7 +851,7 @@ fun TvPlayerScreen(
             ) { firstRequester ->
                 if (controller.audioTracks.isEmpty()) {
                     Text(
-                        text = if (isAr) "مسار صوتي واحد افتراضي" else "Single default audio track",
+                        text = if (isAr) "مسار صوتي واحد افتراضي في هذا البث" else "Single default audio track in this stream",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -653,23 +899,31 @@ private fun PlayerBottomControlBar(
     request: PlaybackRequest,
     epgTitle: String,
     controller: DualPlayerController,
+    isFavorite: Boolean,
     isAr: Boolean,
     initialFocusRequester: FocusRequester,
     onUserInteract: () -> Unit,
     onBackClick: () -> Unit,
+    onPrevChannel: () -> Unit,
+    onNextChannel: () -> Unit,
+    onToggleFavorite: () -> Unit,
     onOpenSubtitles: () -> Unit,
+    onOpenSubtitleStyle: () -> Unit,
     onOpenSync: () -> Unit,
+    onOpenAudioTracks: () -> Unit,
     onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val extraColors = LocalTvExtraColors.current
     val isLive = request.contentType == "LIVE"
+    var isDraggingSlider by remember { mutableStateOf(false) }
+    var sliderDragMs by remember { mutableLongStateOf(0L) }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(extraColors.panelOverlay)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -702,31 +956,55 @@ private fun PlayerBottomControlBar(
             )
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
+        // شريط التمرير التفاعلي للأفلام والمسلسلات (يدعم السحب باللمس والوقت المنقضي والمتبقي)
         if (!isLive && controller.durationMs > 0L) {
-            val progress = (controller.currentPositionMs.toFloat() / controller.durationMs.toFloat()).coerceIn(0f, 1f)
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(5.dp),
-                color = MaterialTheme.colorScheme.primary
-            )
+            val activePos = if (isDraggingSlider) sliderDragMs else controller.currentPositionMs
+            val progress = (activePos.toFloat() / controller.durationMs.toFloat()).coerceIn(0f, 1f)
+            val remainingMs = (controller.durationMs - activePos).coerceAtLeast(0L)
+
             Spacer(modifier = Modifier.height(4.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Slider(
+                value = progress,
+                onValueChange = { frac ->
+                    isDraggingSlider = true
+                    sliderDragMs = (frac * controller.durationMs).toLong()
+                    onUserInteract()
+                },
+                onValueChangeFinished = {
+                    controller.seekTo(sliderDragMs)
+                    isDraggingSlider = false
+                    onUserInteract()
+                },
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = Color.White.copy(alpha = 0.30f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 LtrText(
-                    text = LocaleUtils.formatDuration(controller.currentPositionMs),
+                    text = LocaleUtils.formatDuration(activePos),
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.White
                 )
                 LtrText(
-                    text = LocaleUtils.formatDuration(controller.durationMs),
+                    text = "-${LocaleUtils.formatDuration(remainingMs)} / ${LocaleUtils.formatDuration(controller.durationMs)}",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.secondary
                 )
             }
+            Spacer(modifier = Modifier.height(4.dp))
+        } else {
             Spacer(modifier = Modifier.height(6.dp))
         }
 
+        // شريط الأزرار السفلي الموحد للتلفاز والهاتف
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -740,15 +1018,26 @@ private fun PlayerBottomControlBar(
                 onFocused = onUserInteract,
                 onClick = onBackClick
             )
-            PlayerControlChip(
-                icon = Icons.Default.Replay10,
-                label = "-15s",
-                onFocused = onUserInteract,
-                onClick = {
-                    onUserInteract()
-                    controller.seekBy(-15_000L)
-                }
-            )
+
+            if (isLive && request.channelList.size > 1) {
+                PlayerControlChip(
+                    icon = Icons.Default.SkipPrevious,
+                    label = "CH-",
+                    onFocused = onUserInteract,
+                    onClick = onPrevChannel
+                )
+            } else {
+                PlayerControlChip(
+                    icon = Icons.Default.Replay10,
+                    label = "-15s",
+                    onFocused = onUserInteract,
+                    onClick = {
+                        onUserInteract()
+                        controller.seekBy(-15_000L)
+                    }
+                )
+            }
+
             PlayerControlChip(
                 icon = if (controller.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                 label = if (controller.isPlaying) (if (isAr) "إيقاف" else "Pause") else (if (isAr) "تشغيل" else "Play"),
@@ -759,15 +1048,36 @@ private fun PlayerBottomControlBar(
                     controller.togglePlayPause()
                 }
             )
+
+            if (isLive && request.channelList.size > 1) {
+                PlayerControlChip(
+                    icon = Icons.Default.SkipNext,
+                    label = "CH+",
+                    onFocused = onUserInteract,
+                    onClick = onNextChannel
+                )
+            } else {
+                PlayerControlChip(
+                    icon = Icons.Default.Forward10,
+                    label = "+15s",
+                    onFocused = onUserInteract,
+                    onClick = {
+                        onUserInteract()
+                        controller.seekBy(15_000L)
+                    }
+                )
+            }
+
+            // زر المفضلة التفاعلي ★
             PlayerControlChip(
-                icon = Icons.Default.Forward10,
-                label = "+15s",
+                icon = if (isFavorite) Icons.Default.Star else Icons.Default.StarOutline,
+                label = if (isAr) "المفضلة" else "Fav",
+                iconTint = if (isFavorite) Color(0xFFFFD600) else Color.White,
+                unfocusedBg = if (isFavorite) Color(0xFFFFD600).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.16f),
                 onFocused = onUserInteract,
-                onClick = {
-                    onUserInteract()
-                    controller.seekBy(15_000L)
-                }
+                onClick = onToggleFavorite
             )
+
             if (isLive) {
                 PlayerControlChip(
                     icon = Icons.Default.FiberManualRecord,
@@ -779,18 +1089,37 @@ private fun PlayerBottomControlBar(
                     }
                 )
             }
+
+            // زر الصوت لاختيار المعلق أو اللغة المناسبة
+            PlayerControlChip(
+                icon = Icons.Default.Audiotrack,
+                label = if (isAr) "الصوت" else "Audio",
+                onFocused = onUserInteract,
+                onClick = onOpenAudioTracks
+            )
+
             PlayerControlChip(
                 icon = Icons.Default.Subtitles,
                 label = if (isAr) "الترجمة" else "Subtitles",
                 onFocused = onUserInteract,
                 onClick = onOpenSubtitles
             )
+
+            // زر مظهر الترجمة لتخصيص حجم الخط واللون مباشرة
+            PlayerControlChip(
+                icon = Icons.Default.Palette,
+                label = if (isAr) "خط/لون" else "Style",
+                onFocused = onUserInteract,
+                onClick = onOpenSubtitleStyle
+            )
+
             PlayerControlChip(
                 icon = Icons.Default.Tune,
                 label = if (isAr) "التزامن" else "Sync",
                 onFocused = onUserInteract,
                 onClick = onOpenSync
             )
+
             PlayerControlChip(
                 icon = Icons.Default.SettingsEthernet,
                 label = "MENU",
@@ -805,6 +1134,8 @@ private fun PlayerBottomControlBar(
 private fun PlayerControlChip(
     icon: ImageVector,
     label: String,
+    iconTint: Color = Color.White,
+    unfocusedBg: Color = Color.White.copy(alpha = 0.16f),
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     onClick: () -> Unit
@@ -815,13 +1146,13 @@ private fun PlayerControlChip(
             .tvFocusItem(
                 focusRequester = focusRequester,
                 shape = RoundedCornerShape(8.dp),
-                unfocusedBackgroundColor = Color.White.copy(alpha = 0.16f),
+                unfocusedBackgroundColor = unfocusedBg,
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 11.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(6.dp))
         LtrText(text = label, style = MaterialTheme.typography.labelMedium, color = Color.White)
     }
@@ -1169,13 +1500,14 @@ private fun SubtitleAppearanceDialog(
         0xFFFFFFFF to (if (isAr) "أبيض" else "White"),
         0xFFFFD600 to (if (isAr) "أصفر" else "Yellow"),
         0xFF00E5FF to (if (isAr) "سماوي" else "Cyan"),
-        0xFF00E676 to (if (isAr) "أخضر" else "Green")
+        0xFF00E676 to (if (isAr) "أخضر" else "Green"),
+        0xFFFF9100 to (if (isAr) "برتقالي" else "Orange")
     )
 
     TvModalDialog(
-        title = if (isAr) "تخصيص مظهر الترجمة" else "Subtitle Appearance",
+        title = if (isAr) "تخصيص لون وحجم الترجمة" else "Subtitle Color & Font Size",
         onDismiss = onDismiss,
-        maxWidth = 500.dp,
+        maxWidth = 520.dp,
         scrollableBody = true,
         footer = {
             Row(
@@ -1224,7 +1556,7 @@ private fun SubtitleAppearanceDialog(
             color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             colorChoices.forEachIndexed { idx, (hex, label) ->
                 val active = selectedColor == hex
                 Box(
@@ -1242,7 +1574,8 @@ private fun SubtitleAppearanceDialog(
                     Text(
                         text = label,
                         color = if (active) MaterialTheme.colorScheme.onPrimary else Color(hex),
-                        style = MaterialTheme.typography.labelLarge
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1
                     )
                 }
             }
@@ -1255,8 +1588,8 @@ private fun SubtitleAppearanceDialog(
             color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(20f to "20sp", 24f to "24sp", 28f to "28sp", 34f to "34sp").forEach { (spVal, lbl) ->
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(18f to "18sp", 22f to "22sp", 26f to "26sp", 30f to "30sp", 36f to "36sp").forEach { (spVal, lbl) ->
                 val active = selectedSize == spVal
                 Box(
                     modifier = Modifier
@@ -1272,7 +1605,7 @@ private fun SubtitleAppearanceDialog(
                     LtrText(
                         text = lbl,
                         color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.labelLarge
+                        style = MaterialTheme.typography.labelMedium
                     )
                 }
             }
