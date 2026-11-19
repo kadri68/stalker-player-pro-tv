@@ -364,7 +364,9 @@ class DualPlayerController(
                 "--live-caching=1200",
                 "--file-caching=1200",
                 "--avcodec-hw=any",
-                "--codec=all"
+                "--codec=all",
+            "--sub-track=0",
+            "--freetype-rel-fontsize=18"
             )
         ).also { libVlc = it }
 
@@ -402,6 +404,14 @@ class DualPlayerController(
                             engineStatusNotice = "إعادة الاتصال بالبث... / Reconnecting..."
                         } else {
                             isBuffering = false
+                        }
+                    }
+                    MediaPlayer.Event.ESAdded, MediaPlayer.Event.Vout -> {
+                        refreshVlcAudioTracks(player)
+                        refreshVlcSpuTracks(player)
+                        val activeSub = embeddedSubtitleTracks.find { it.isSelected }
+                        if (activeSub != null && activeSub.vlcSpuId >= 0 && player.spuTrack != activeSub.vlcSpuId) {
+                            player.spuTrack = activeSub.vlcSpuId
                         }
                     }
                     MediaPlayer.Event.TimeChanged -> {
@@ -556,6 +566,11 @@ class DualPlayerController(
                 mp.spuTrack = -1
                 embeddedSubtitleTracks = embeddedSubtitleTracks.map { it.copy(isSelected = false) }
             } else if (track.vlcSpuId >= 0) {
+                attachedVlcLayout?.let { layout ->
+                    if (!mp.vlcVout.areViewsAttached()) {
+                        mp.attachViews(layout, null, true, false)
+                    }
+                }
                 mp.spuTrack = track.vlcSpuId
                 embeddedSubtitleTracks = embeddedSubtitleTracks.map { it.copy(isSelected = it.id == track.id) }
             }
@@ -689,6 +704,10 @@ class DualPlayerController(
             if (!mp.vlcVout.areViewsAttached()) {
                 mp.attachViews(layout, null, true, false)
             }
+            val activeSub = embeddedSubtitleTracks.find { it.isSelected }
+            if (activeSub != null && activeSub.vlcSpuId >= 0) {
+                mp.spuTrack = activeSub.vlcSpuId
+            }
         }
     }
 
@@ -747,6 +766,7 @@ fun DualVideoSurface(
                     subtitleView?.visibility = android.view.View.VISIBLE
                     subtitleView?.setApplyEmbeddedStyles(true)
                     subtitleView?.setApplyEmbeddedFontSizes(true)
+                    subtitleView?.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION)
                     isClickable = false
                     isFocusable = false
                     setOnTouchListener { _, _ -> false }
@@ -758,6 +778,7 @@ fun DualVideoSurface(
                 }
             },
             update = { view ->
+                view.subtitleView?.visibility = android.view.View.VISIBLE
                 controller.attachExoView(view)
             }
         )

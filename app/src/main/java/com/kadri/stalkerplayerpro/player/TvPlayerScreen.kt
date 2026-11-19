@@ -1301,19 +1301,12 @@ private fun PlayerBottomControlBar(
                 onClick = onToggleFavorite
             )
 
-            PlayerControlChip(
-                icon = Icons.Default.History,
-                label = if (isAr) "السجل" else "History",
-                onFocused = onUserInteract,
-                onClick = onOpenHistory
-            )
-
-            if (onEnterPip != null) {
+            if (!com.kadri.stalkerplayerpro.isTvDevice(androidx.compose.ui.platform.LocalContext.current)) {
                 PlayerControlChip(
-                    icon = Icons.Default.PictureInPictureAlt,
-                    label = "PiP",
+                    icon = Icons.Default.History,
+                    label = if (isAr) "السجل" else "History",
                     onFocused = onUserInteract,
-                    onClick = onEnterPip
+                    onClick = onOpenHistory
                 )
             }
 
@@ -1341,13 +1334,6 @@ private fun PlayerBottomControlBar(
                 label = if (isAr) "الترجمة" else "Subtitles",
                 onFocused = onUserInteract,
                 onClick = onOpenSubtitles
-            )
-
-            PlayerControlChip(
-                icon = Icons.Default.Palette,
-                label = if (isAr) "خط/لون" else "Style",
-                onFocused = onUserInteract,
-                onClick = onOpenSubtitleStyle
             )
 
             PlayerControlChip(

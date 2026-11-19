@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
@@ -47,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -69,6 +72,7 @@ import com.kadri.stalkerplayerpro.ui.components.TvPinDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsScreen(
@@ -84,6 +88,7 @@ fun SettingsScreen(
 
     var showPinDialog by remember { mutableStateOf(false) }
     var showSubtitleAccountsDialog by remember { mutableStateOf(false) }
+    var showSubtitleStyleDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
     var showExportDialog by remember { mutableStateOf(false) }
@@ -402,7 +407,24 @@ fun SettingsScreen(
             )
         }
 
-        if (showSubtitleAccountsDialog) {
+        if (showSubtitleStyleDialog) {
+        SettingsSubtitleStyleDialog(
+            settings = settings,
+            isAr = isAr,
+            onSave = { color, size, alpha ->
+                scope.launch { settingsStore.updateSubtitleStyle(color, size, alpha) }
+                showSubtitleStyleDialog = false
+                Toast.makeText(
+                    context,
+                    if (isAr) "تم حفظ إعدادات مظهر الترجمة" else "Subtitle appearance saved",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onDismiss = { showSubtitleStyleDialog = false }
+        )
+    }
+
+    if (showSubtitleAccountsDialog) {
             var osKey by remember { mutableStateOf(settings.openSubApiKey) }
             var osUser by remember { mutableStateOf(settings.openSubUsername) }
             var osPass by remember { mutableStateOf(settings.openSubPassword) }
@@ -727,6 +749,150 @@ private fun BackupCheckRow(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+@Composable
+private fun SettingsSubtitleStyleDialog(
+    settings: TvUserSettings,
+    isAr: Boolean,
+    onSave: (Long, Float, Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedColor by remember { mutableStateOf(settings.subTextColor) }
+    var fontSize by remember { mutableStateOf(settings.subFontSizeSp) }
+    var bgAlpha by remember { mutableStateOf(settings.subBgAlpha) }
+
+    val colors = listOf(
+        0xFFFFFFFFL to (if (isAr) "أبيض" else "White"),
+        0xFFFFD600L to (if (isAr) "أصفر" else "Yellow"),
+        0xFF00E5FFL to (if (isAr) "سماوي" else "Cyan"),
+        0xFF00E676L to (if (isAr) "أخضر" else "Green"),
+        0xFFFF9100L to (if (isAr) "برتقالي" else "Orange")
+    )
+
+    TvModalDialog(
+        title = if (isAr) "مظهر وحجم خط الترجمة" else "Subtitle Appearance",
+        onDismiss = onDismiss,
+        maxWidth = 540.dp
+    ) { firstRequester ->
+        Text(
+            text = if (isAr) "لون النص:" else "Text Color:",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            colors.forEachIndexed { idx, (hex, label) ->
+                val active = selectedColor == hex
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            focusRequester = if (idx == 0) firstRequester else null,
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { selectedColor = hex }
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = label,
+                        color = Color(hex),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = if (isAr) "حجم الخط: ${fontSize.roundToInt()}sp" else "Font Size: ${fontSize.roundToInt()}sp",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { fontSize = (fontSize - 2f).coerceAtLeast(16f) }
+                    )
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) { Text("A-", color = MaterialTheme.colorScheme.onSurface) }
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { fontSize = (fontSize + 2f).coerceAtMost(42f) }
+                    )
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) { Text("A+", color = MaterialTheme.colorScheme.onSurface) }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = if (isAr) "خلفية النص:" else "Background:",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            listOf(0f to (if (isAr) "شفاف" else "None"), 0.55f to "55%", 0.85f to "85%").forEach { (alphaVal, lbl) ->
+                val active = kotlin.math.abs(bgAlpha - alphaVal) < 0.05f
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { bgAlpha = alphaVal }
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = lbl,
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Black.copy(alpha = bgAlpha), RoundedCornerShape(8.dp))
+                .padding(10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = if (isAr) "نموذج معاينة خط ولون الترجمة" else "Sample Subtitle Preview",
+                color = Color(selectedColor),
+                fontSize = androidx.compose.ui.unit.TextUnit(fontSize, androidx.compose.ui.unit.TextUnitType.Sp),
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                        onClick = { onSave(selectedColor, fontSize, bgAlpha) }
+                    )
+                    .padding(horizontal = 18.dp, vertical = 9.dp)
+            ) {
+                Text(
+                    text = if (isAr) "حفظ" else "Save",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
     }
 }
 

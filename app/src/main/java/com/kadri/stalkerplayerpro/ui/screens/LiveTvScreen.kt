@@ -95,6 +95,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private val liveSessionMemoryCache = java.util.concurrent.ConcurrentHashMap<Long, Pair<List<CategoryItem>, List<ChannelItem>>>()
+
 @Composable
 fun LiveTvScreen(
     portal: PortalEntity?,
@@ -181,14 +183,25 @@ fun LiveTvScreen(
     fun loadLiveContent(forceRefresh: Boolean = false) {
         scope.launch {
             if (!forceRefresh) {
+                val memCached = liveSessionMemoryCache[portal.id]
+                if (memCached != null && memCached.second.isNotEmpty()) {
+                    categories = memCached.first
+                    rawChannels = memCached.second
+                    isLoading = false
+                    hasError = false
+                    return@launch
+                }
                 val cached = PortalCacheStore.loadLiveCache(context, portal.id)
                 if (cached != null && cached.second.isNotEmpty()) {
+                    liveSessionMemoryCache[portal.id] = cached
                     categories = cached.first
                     rawChannels = cached.second
                     isLoading = false
                     hasError = false
                     return@launch
                 }
+            } else {
+                liveSessionMemoryCache.remove(portal.id)
             }
 
             isLoading = true
@@ -204,7 +217,7 @@ fun LiveTvScreen(
                     rawChannels = chs
                     hasError = chs.isEmpty()
                     if (chs.isNotEmpty()) {
-                        PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                        liveSessionMemoryCache[portal.id] = (cats to chs); PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
                     }
                 }
                 "STALKER" -> coroutineScope {
@@ -216,7 +229,7 @@ fun LiveTvScreen(
                     rawChannels = chs
                     hasError = chs.isEmpty()
                     if (chs.isNotEmpty()) {
-                        PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                        liveSessionMemoryCache[portal.id] = (cats to chs); PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
                     }
                 }
                 "M3U" -> {
@@ -225,7 +238,7 @@ fun LiveTvScreen(
                     rawChannels = chs
                     hasError = chs.isEmpty()
                     if (chs.isNotEmpty()) {
-                        PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                        liveSessionMemoryCache[portal.id] = (cats to chs); PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
                     }
                 }
             }

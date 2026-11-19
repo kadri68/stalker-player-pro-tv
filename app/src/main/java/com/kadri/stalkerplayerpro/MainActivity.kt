@@ -167,6 +167,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        val inPip = isInPipModeState || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode)
+        if (!isChangingConfigurations && !inPip) {
+            forceStopPlaybackSignal++
+            isPlayerActiveForPip = false
+            finishAndRemoveTask()
+        }
+    }
+
     override fun onDestroy() {
         runCatching { unregisterReceiver(pipCloseReceiver) }
         super.onDestroy()
@@ -225,7 +235,11 @@ class MainActivity : ComponentActivity() {
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
         ) {
             runCatching {
-                buildPipParams(true)?.let { enterPictureInPictureMode(it) }
+                buildPipParams(true)?.let {
+                    if (enterPictureInPictureMode(it)) {
+                        isInPipModeState = true
+                    }
+                }
             }
         }
     }
@@ -289,7 +303,7 @@ private fun MainTvRoot(
         }
     }
 
-    LaunchedEffect(activePlayback != null) {
+    LaunchedEffect(activePlayback != null, settings.autoPipEnabled) {
         onPlayerActiveChanged(activePlayback != null)
     }
 

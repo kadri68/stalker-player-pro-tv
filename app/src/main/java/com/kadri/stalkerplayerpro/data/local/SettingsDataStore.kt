@@ -19,6 +19,7 @@ data class TvUserSettings(
     val parentalPin: String = "0000",
     val clockCorner: Int = 0,
     val showClock: Boolean = true,
+    val autoPipEnabled: Boolean = true,
     val preferredAudioLang: String = "ar",
     val preferredSubtitleLang: String = "ar",
     // إعدادات الترجمة الخارجية ومحرك البحث المفضل ("BOTH", "OPENSUBTITLES", "SUBDL")
@@ -42,6 +43,7 @@ class SettingsDataStore(private val context: Context) {
         val KEY_PIN = stringPreferencesKey("parental_pin")
         val KEY_CLOCK_CORNER = intPreferencesKey("clock_corner")
         val KEY_SHOW_CLOCK = intPreferencesKey("show_clock")
+        val KEY_AUTO_PIP = intPreferencesKey("auto_pip_enabled")
         val KEY_AUDIO_LANG = stringPreferencesKey("preferred_audio_lang")
         val KEY_SUBTITLE_LANG = stringPreferencesKey("preferred_subtitle_lang")
 
@@ -65,6 +67,7 @@ class SettingsDataStore(private val context: Context) {
             parentalPin = prefs[KEY_PIN] ?: "0000",
             clockCorner = prefs[KEY_CLOCK_CORNER] ?: 0,
             showClock = (prefs[KEY_SHOW_CLOCK] ?: 1) == 1,
+            autoPipEnabled = (prefs[KEY_AUTO_PIP] ?: 1) == 1,
             preferredAudioLang = prefs[KEY_AUDIO_LANG] ?: "ar",
             preferredSubtitleLang = prefs[KEY_SUBTITLE_LANG] ?: "ar",
             subtitleEngine = prefs[KEY_SUBTITLE_ENGINE] ?: "BOTH",
@@ -101,6 +104,10 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun updateShowClock(show: Boolean) {
         context.dataStore.edit { it[KEY_SHOW_CLOCK] = if (show) 1 else 0 }
+    }
+
+    suspend fun updateAutoPipEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_AUTO_PIP] = if (enabled) 1 else 0 }
     }
 
     suspend fun updatePreferredAudioLang(lang: String) {
