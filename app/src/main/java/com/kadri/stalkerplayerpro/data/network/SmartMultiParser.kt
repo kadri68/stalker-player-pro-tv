@@ -38,7 +38,7 @@ object SmartMultiParser {
             .substringBefore('/')
             .trim()
         val chosen = cleaned.ifBlank { fallback }
-        return chosen.take(5)
+        return chosen.take(10)
     }
 
     private fun mergeBrokenUrlLines(rawText: String): List<String> {

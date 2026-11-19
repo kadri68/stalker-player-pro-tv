@@ -17,26 +17,28 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -57,13 +58,17 @@ import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
+import com.kadri.stalkerplayerpro.data.local.BackupInspectionResult
 import com.kadri.stalkerplayerpro.data.local.BackupManager
+import com.kadri.stalkerplayerpro.data.local.BackupPortalPreview
+import com.kadri.stalkerplayerpro.data.local.BackupSelectionOptions
 import com.kadri.stalkerplayerpro.data.local.SettingsDataStore
 import com.kadri.stalkerplayerpro.data.local.TvUserSettings
-import com.kadri.stalkerplayerpro.data.network.SubtitleRepository
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
 import com.kadri.stalkerplayerpro.ui.components.TvPinDialog
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(
@@ -71,436 +76,341 @@ fun SettingsScreen(
     settings: TvUserSettings,
     settingsStore: SettingsDataStore,
     isAr: Boolean,
-    isTv: Boolean = true,
+    isTv: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var showThemeDialog by remember { mutableStateOf(false) }
-    var showFontDialog by remember { mutableStateOf(false) }
-    var showClockDialog by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
-    var showSubApiDialog by remember { mutableStateOf(false) }
+    var showSubtitleAccountsDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
-    val anyDialogOpen = showThemeDialog || showFontDialog || showClockDialog ||
-            showPinDialog || showSubApiDialog || showAboutDialog
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportPortalsList by remember { mutableStateOf<List<BackupPortalPreview>>(emptyList()) }
 
-    val exportBackupLauncher = rememberLauncherForActivityResult(
+    var showImportDialog by remember { mutableStateOf(false) }
+    var pendingImportRawJson by remember { mutableStateOf("") }
+    var importInspection by remember { mutableStateOf<BackupInspectionResult?>(null) }
+
+    val anyDialog = showPinDialog || showSubtitleAccountsDialog || showAboutDialog ||
+            showExportDialog || showImportDialog
+
+    val pendingExportJson = remember { mutableStateOf("") }
+
+    val exportFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
-        if (uri != null) {
+        if (uri != null && pendingExportJson.value.isNotBlank()) {
             scope.launch {
-                val ok = BackupManager.exportBackupToUri(context, uri, dao, settingsStore)
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            out.write(pendingExportJson.value.toByteArray(Charsets.UTF_8))
+                        }
+                        true
+                    }.getOrDefault(false)
+                }
                 Toast.makeText(
                     context,
                     if (ok) {
-                        if (isAr) "تم تصدير النسخة الاحتياطية بنجاح" else "Backup exported successfully"
+                        if (isAr) "تم حفظ النسخة الاحتياطية المخصصة بنجاح" else "Custom backup exported"
                     } else {
-                        if (isAr) "فشل تصدير النسخة الاحتياطية" else "Backup export failed"
+                        if (isAr) "تعذر حفظ الملف" else "Export failed"
                     },
-                    Toast.LENGTH_SHORT
+                    Toast.LENGTH_LONG
                 ).show()
             }
         }
     }
 
-    val importBackupLauncher = rememberLauncherForActivityResult(
+    val importFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                val ok = BackupManager.importBackupFromUri(context, uri, dao, settingsStore)
-                Toast.makeText(
-                    context,
-                    if (ok) {
-                        if (isAr) "تم استعادة النسخة الاحتياطية بنجاح" else "Backup restored successfully"
-                    } else {
-                        if (isAr) "ملف النسخة الاحتياطية غير صالح" else "Invalid backup file"
-                    },
-                    Toast.LENGTH_SHORT
-                ).show()
+                val raw = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    }.getOrDefault("")
+                }
+                val inspected = BackupManager.inspectBackupJson(raw)
+                if (inspected != null) {
+                    pendingImportRawJson = raw
+                    importInspection = inspected
+                    showImportDialog = true
+                } else {
+                    Toast.makeText(
+                        context,
+                        if (isAr) "ملف النسخة الاحتياطية غير صالح" else "Invalid backup file",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }
 
     val currentTheme = AppThemeId.fromId(settings.themeId)
-    val currentFontScale = TvFontScale.fromId(settings.fontScaleId, isTvDefault = isTv)
-    val clockCornerLabel = when (settings.clockCorner) {
-        0 -> if (isAr) "أعلى اليمين" else "Top Right"
-        1 -> if (isAr) "أعلى اليسار" else "Top Left"
-        2 -> if (isAr) "أسفل اليمين" else "Bottom Right"
-        else -> if (isAr) "أسفل اليسار" else "Bottom Left"
+    val currentFont = TvFontScale.fromId(settings.fontScaleId, isTvDefault = isTv)
+
+    val subtitleEngineLabel = when (settings.subtitleEngine) {
+        "OPENSUBTITLES" -> "OpenSubtitles"
+        "SUBDL" -> "Subdl.com"
+        else -> if (isAr) "كلاهما (OpenSubtitles + Subdl)" else "Both (OpenSubtitles + Subdl)"
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxSize()
-                .blockFocusWhen(anyDialogOpen)
-                .padding(horizontal = 20.dp, vertical = 14.dp)
+                .blockFocusWhen(anyDialog)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Text(
-                text = if (isAr) "الإعدادات" else "Settings",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(10.dp))
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.ColorLens,
+                    title = if (isAr) "مظهر التطبيق والألوان" else "Application Theme",
+                    valueText = if (isAr) currentTheme.titleAr else currentTheme.titleEn,
+                    isAr = isAr,
+                    focusRequester = initialContentFocusRequester,
+                    onClick = {
+                        val next = (currentTheme.id + 1) % AppThemeId.entries.size
+                        scope.launch { settingsStore.updateTheme(next) }
+                    }
+                )
+            }
 
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                item(key = "set_theme") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.ColorLens,
-                        title = if (isAr) "ثيمات الواجهة (6 ثيمات)" else "Interface Themes (6 Themes)",
-                        valueText = if (isAr) currentTheme.titleAr else currentTheme.titleEn,
-                        isAr = isAr,
-                        focusRequester = initialContentFocusRequester,
-                        onClick = { showThemeDialog = true }
-                    )
-                }
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.FormatSize,
+                    title = if (isAr) "حجم خط الواجهة" else "UI Font Scale",
+                    valueText = if (isAr) currentFont.titleAr else currentFont.titleEn,
+                    isAr = isAr,
+                    onClick = {
+                        val next = (currentFont.id + 1) % TvFontScale.entries.size
+                        scope.launch { settingsStore.updateFontScale(next) }
+                    }
+                )
+            }
 
-                item(key = "set_lang") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.Language,
-                        title = if (isAr) "لغة الواجهة (العربية / English)" else "Interface Language",
-                        valueText = if (isAr) "العربية" else "English",
-                        isAr = isAr,
-                        onClick = {
-                            scope.launch {
-                                settingsStore.updateLanguage(if (isAr) "en" else "ar")
-                            }
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.Language,
+                    title = if (isAr) "لغة الواجهة" else "Interface Language",
+                    valueText = if (isAr) "العربية" else "English",
+                    isAr = isAr,
+                    onClick = {
+                        val nextLang = if (isAr) "en" else "ar"
+                        scope.launch { settingsStore.updateLanguage(nextLang) }
+                    }
+                )
+            }
+
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.AccessTime,
+                    title = if (isAr) "الساعة الرقمية في المشغل" else "Player Digital Clock",
+                    valueText = if (settings.showClock) (if (isAr) "مفعّلة" else "Enabled") else (if (isAr) "مخفية" else "Hidden"),
+                    isAr = isAr,
+                    onClick = {
+                        scope.launch { settingsStore.updateShowClock(!settings.showClock) }
+                    }
+                )
+            }
+
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.Lock,
+                    title = if (isAr) "رمز الرقابة الأبوية (PIN)" else "Parental Control PIN",
+                    valueText = "****",
+                    isAr = isAr,
+                    onClick = { showPinDialog = true }
+                )
+            }
+
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.Search,
+                    title = if (isAr) "محرك البحث عن الترجمة" else "Subtitle Search Engine",
+                    valueText = subtitleEngineLabel,
+                    isAr = isAr,
+                    onClick = {
+                        val nextEngine = when (settings.subtitleEngine) {
+                            "BOTH" -> "OPENSUBTITLES"
+                            "OPENSUBTITLES" -> "SUBDL"
+                            else -> "BOTH"
                         }
-                    )
-                }
+                        scope.launch { settingsStore.updateSubtitleEngine(nextEngine) }
+                    }
+                )
+            }
 
-                item(key = "set_font") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.FormatSize,
-                        title = if (isAr) "حجم خط الواجهة (الهاتف والتلفاز)" else "Interface Font Size",
-                        valueText = if (isAr) currentFontScale.labelAr else currentFontScale.labelEn,
-                        isAr = isAr,
-                        onClick = { showFontDialog = true }
-                    )
-                }
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.Subtitles,
+                    title = if (isAr) "حسابات الترجمة (OpenSubtitles / Subdl)" else "Subtitle API Accounts",
+                    valueText = if (isAr) "إعداد المفاتيح" else "Configure Keys",
+                    isAr = isAr,
+                    onClick = { showSubtitleAccountsDialog = true }
+                )
+            }
 
-                item(key = "set_pin") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.Lock,
-                        title = if (isAr) "رمز PIN للرقابة الأبوية" else "Parental Control PIN",
-                        valueText = "****",
-                        isAr = isAr,
-                        onClick = { showPinDialog = true }
-                    )
-                }
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.Backup,
+                    title = if (isAr) "تصدير نسخة احتياطية مخصصة" else "Export Custom Backup",
+                    valueText = if (isAr) "تحديد البوابات / المفضلة / الإعدادات" else "Select Items",
+                    isAr = isAr,
+                    onClick = {
+                        scope.launch {
+                            val all = dao.getAllPortals().filter { it.url != BUILTIN_FREE_AR_M3U_URL }
+                            exportPortalsList = all.map {
+                                BackupPortalPreview(
+                                    uniqueKey = BackupManager.portalBackupKey(it.url, it.mac, it.username),
+                                    name = it.name.take(10),
+                                    protocol = it.protocol,
+                                    url = it.url
+                                )
+                            }
+                            showExportDialog = true
+                        }
+                    }
+                )
+            }
 
-                item(key = "set_clock") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.AccessTime,
-                        title = if (isAr) "الساعة الرقمية وزاوية العرض" else "Digital Clock & Corner",
-                        valueText = if (settings.showClock) clockCornerLabel else (if (isAr) "مخفية" else "Hidden"),
-                        isAr = isAr,
-                        onClick = { showClockDialog = true }
-                    )
-                }
-
-                item(key = "set_sub_api") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.Subtitles,
-                        title = if (isAr) "حسابات الترجمة الخارجية (OpenSubtitles / Subdl)" else "External Subtitles APIs",
-                        valueText = if (settings.openSubApiKey.isNotBlank() || settings.subdlApiKey.isNotBlank()) {
-                            if (isAr) "مُفعّل" else "Configured"
-                        } else {
-                            if (isAr) "غير مضبوط" else "Not Set"
-                        },
-                        isAr = isAr,
-                        onClick = { showSubApiDialog = true }
-                    )
-                }
-
-                item(key = "set_export") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.Backup,
-                        title = if (isAr) "تصدير نسخة احتياطية شاملة (JSON)" else "Export Full Backup (JSON)",
-                        valueText = "JSON",
-                        isAr = isAr,
-                        onClick = {
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.Restore,
+                    title = if (isAr) "استيراد نسخة احتياطية مخصصة" else "Import Custom Backup",
+                    valueText = if (isAr) "انتقاء العناصر للاستعادة" else "Selective Restore",
+                    isAr = isAr,
+                    onClick = {
+                        if (isTv) {
                             scope.launch {
-                                val savedPath = BackupManager.exportToDefaultFolder(context, dao, settingsStore)
-                                if (savedPath != null) {
+                                val file = BackupManager.getDefaultBackupFile(context)
+                                val raw = withContext(Dispatchers.IO) {
+                                    if (file.exists()) runCatching { file.readText(Charsets.UTF_8) }.getOrDefault("") else ""
+                                }
+                                val inspected = BackupManager.inspectBackupJson(raw)
+                                if (inspected != null) {
+                                    pendingImportRawJson = raw
+                                    importInspection = inspected
+                                    showImportDialog = true
+                                } else {
                                     Toast.makeText(
                                         context,
-                                        if (isAr) "تم الحفظ في: $savedPath" else "Saved: $savedPath",
+                                        if (isAr) "لم يتم العثور على ملف باكب في Download" else "No backup file found in Download",
                                         Toast.LENGTH_LONG
                                     ).show()
                                 }
-                                runCatching {
-                                    if (!isTv) { exportBackupLauncher.launch("stalker_player_pro_backup.json") }
-                                }
+                            }
+                        } else {
+                            val ok = runCatching { importFileLauncher.launch(arrayOf("application/json", "*/*")) }.isSuccess
+                            if (!ok) {
+                                Toast.makeText(context, if (isAr) "متصفح الملفات غير متوفر" else "File picker unavailable", Toast.LENGTH_SHORT).show()
                             }
                         }
-                    )
-                }
+                    }
+                )
+            }
 
-                item(key = "set_import") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.Restore,
-                        title = if (isAr) "استيراد نسخة احتياطية شاملة (JSON)" else "Import Full Backup (JSON)",
-                        valueText = "JSON",
-                        isAr = isAr,
-                        onClick = {
-                            scope.launch {
-                                val restoredFromDownload = BackupManager.importFromDefaultFolder(context, dao, settingsStore)
-                                if (restoredFromDownload) {
-                                    Toast.makeText(
-                                        context,
-                                        if (isAr) "تمت استعادة النسخة الاحتياطية من مجلد Download بنجاح" else "Restored from Download folder",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+            item {
+                ClassicSettingsRow(
+                    icon = Icons.Default.Info,
+                    title = if (isAr) "حول التطبيق والمطور" else "About Application",
+                    valueText = "v1.9.0",
+                    isAr = isAr,
+                    onClick = { showAboutDialog = true }
+                )
+            }
+        }
+
+        if (showExportDialog) {
+            SelectiveBackupDialog(
+                title = if (isAr) "تصدير نسخة احتياطية مخصصة (مستثنى AR-TV)" else "Export Custom Backup (AR-TV Excluded)",
+                confirmLabel = if (isAr) "تصدير المحدد" else "Export Selected",
+                portals = exportPortalsList,
+                showFavoritesOption = true,
+                showSubtitlesOption = true,
+                showSettingsOption = true,
+                isAr = isAr,
+                onConfirm = { options ->
+                    showExportDialog = false
+                    scope.launch {
+                        if (isTv) {
+                            val savedPath = BackupManager.exportToDefaultFolder(context, dao, settingsStore, options)
+                            Toast.makeText(
+                                context,
+                                if (savedPath != null) {
+                                    if (isAr) "تم الحفظ في: $savedPath" else "Saved to: $savedPath"
                                 } else {
-                                    val pickerOpened = runCatching {
-                                        importBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
-                                    }.isSuccess
-                                    if (!pickerOpened) {
-                                        Toast.makeText(
-                                            context,
-                                            if (isAr) "ضع ملف stalker_player_pro_backup.json في مجلد Download ثم أعد المحاولة" else "Place stalker_player_pro_backup.json in Download folder",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }
-                            }
+                                    if (isAr) "تعذر التصدير" else "Export failed"
+                                },
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            pendingExportJson.value = BackupManager.buildBackupJsonString(dao, settingsStore, options)
+                            exportFileLauncher.launch("stalker_player_pro_backup.json")
                         }
-                    )
-                }
-
-                item(key = "set_about") {
-                    ClassicSettingsRow(
-                        icon = Icons.Default.Info,
-                        title = if (isAr) "حول التطبيق ومعلومات المطور" else "About App & Developer",
-                        valueText = "v1.8.1",
-                        isAr = isAr,
-                        onClick = { showAboutDialog = true }
-                    )
-                }
-            }
+                    }
+                },
+                onDismiss = { showExportDialog = false }
+            )
         }
 
-        if (showThemeDialog) {
-            TvModalDialog(
-                title = if (isAr) "اختر ثيم الواجهة" else "Select Interface Theme",
-                onDismiss = { showThemeDialog = false },
-                maxWidth = 500.dp
-            ) { firstRequester ->
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(
-                        items = AppThemeId.entries,
-                        key = { idx, t -> "theme_opt_${t.id}_$idx" }
-                    ) { index, theme ->
-                        val active = theme.id == settings.themeId
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .tvFocusItem(
-                                    focusRequester = if (index == 0) firstRequester else null,
-                                    shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = if (active) {
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                    },
-                                    onClick = {
-                                        scope.launch { settingsStore.updateTheme(theme.id) }
-                                        showThemeDialog = false
-                                    }
-                                )
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .background(theme.colorScheme.primary, CircleShape)
-                                    .border(1.5.dp, Color.White, CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = if (isAr) theme.titleAr else theme.titleEn,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (active) {
-                                LtrText(text = "✓", color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
+        if (showImportDialog && importInspection != null) {
+            val info = importInspection!!
+            SelectiveBackupDialog(
+                title = if (isAr) "استعادة انتقائية من النسخة الاحتياطية" else "Selective Backup Restore",
+                confirmLabel = if (isAr) "استعادة المحدد" else "Restore Selected",
+                portals = info.portals,
+                showFavoritesOption = info.favoritesCount > 0,
+                favoritesLabelSuffix = " (${info.favoritesCount})",
+                showSubtitlesOption = info.hasSubtitleAccounts,
+                showSettingsOption = info.hasAppSettings,
+                isAr = isAr,
+                onConfirm = { options ->
+                    showImportDialog = false
+                    scope.launch {
+                        val ok = BackupManager.parseAndApplyBackupJson(pendingImportRawJson, dao, settingsStore, options)
+                        Toast.makeText(
+                            context,
+                            if (ok) {
+                                if (isAr) "تمت استعادة العناصر المحددة بنجاح" else "Selected items restored"
+                            } else {
+                                if (isAr) "فشلت الاستعادة" else "Restore failed"
+                            },
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
-                }
-            }
-        }
-
-        if (showFontDialog) {
-            TvModalDialog(
-                title = if (isAr) "حجم خط الواجهة" else "Interface Font Size",
-                onDismiss = { showFontDialog = false },
-                maxWidth = 460.dp
-            ) { firstRequester ->
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(
-                        items = TvFontScale.entries,
-                        key = { idx, sc -> "font_opt_${sc.id}_$idx" }
-                    ) { index, scale ->
-                        val active = scale.id == currentFontScale.id
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .tvFocusItem(
-                                    focusRequester = if (index == 0) firstRequester else null,
-                                    shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = if (active) {
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                    },
-                                    onClick = {
-                                        scope.launch { settingsStore.updateFontScale(scale.id) }
-                                        showFontDialog = false
-                                    }
-                                )
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (isAr) scale.labelAr else scale.labelEn,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (active) {
-                                LtrText(text = "✓", color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (showClockDialog) {
-            TvModalDialog(
-                title = if (isAr) "إعدادات الساعة الرقمية" else "Digital Clock Settings",
-                onDismiss = { showClockDialog = false },
-                maxWidth = 460.dp,
-                scrollableBody = true,
-                footer = {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Box(
-                            modifier = Modifier
-                                .tvFocusItem(
-                                    shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                                    onClick = { showClockDialog = false }
-                                )
-                                .padding(horizontal = 24.dp, vertical = 9.dp)
-                        ) {
-                            Text(
-                                text = if (isAr) "حفظ" else "Save",
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                style = MaterialTheme.typography.labelLarge
-                            )
-                        }
-                    }
-                }
-            ) { firstRequester ->
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .tvFocusItem(
-                                focusRequester = firstRequester,
-                                shape = RoundedCornerShape(10.dp),
-                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                                onClick = {
-                                    scope.launch { settingsStore.updateShowClock(!settings.showClock) }
-                                }
-                            )
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = if (isAr) "إظهار الساعة أثناء البث" else "Show Clock During Playback",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (settings.showClock) (if (isAr) "مفعّل" else "ON") else (if (isAr) "معطّل" else "OFF"),
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-
-                    val corners = listOf(
-                        0 to (if (isAr) "أعلى اليمين" else "Top Right"),
-                        1 to (if (isAr) "أعلى اليسار" else "Top Left"),
-                        2 to (if (isAr) "أسفل اليمين" else "Bottom Right"),
-                        3 to (if (isAr) "أسفل اليسار" else "Bottom Left")
-                    )
-                    corners.forEach { (cId, cLabel) ->
-                        val active = settings.clockCorner == cId
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .tvFocusItem(
-                                    shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = if (active) {
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                    },
-                                    onClick = {
-                                        scope.launch { settingsStore.updateClockCorner(cId) }
-                                    }
-                                )
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = cLabel, color = MaterialTheme.colorScheme.onSurface)
-                            if (active) LtrText(text = "✓", color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-            }
+                },
+                onDismiss = { showImportDialog = false }
+            )
         }
 
         if (showPinDialog) {
             TvPinDialog(
-                title = if (isAr) "تعيين رمز PIN جديد (4 أرقام)" else "Set New 4-Digit PIN",
+                title = if (isAr) "تعيين رمز PIN جديد" else "Set New Parental PIN",
                 isAr = isAr,
                 onPinSubmitted = { newPin ->
                     scope.launch { settingsStore.updateParentalPin(newPin) }
                     showPinDialog = false
-                    Toast.makeText(
-                        context,
-                        if (isAr) "تم تحديث رمز PIN بنجاح" else "PIN updated",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(context, if (isAr) "تم تحديث رمز القفل" else "PIN Updated", Toast.LENGTH_SHORT).show()
                 },
                 onDismiss = { showPinDialog = false }
             )
         }
 
-        if (showSubApiDialog) {
+        if (showSubtitleAccountsDialog) {
             var osKey by remember { mutableStateOf(settings.openSubApiKey) }
             var osUser by remember { mutableStateOf(settings.openSubUsername) }
             var osPass by remember { mutableStateOf(settings.openSubPassword) }
             var subdlKey by remember { mutableStateOf(settings.subdlApiKey) }
-            var isLoggingIn by remember { mutableStateOf(false) }
 
             TvModalDialog(
-                title = if (isAr) "إعدادات الترجمة (OpenSubtitles v1 & Subdl)" else "Subtitles API Settings",
-                onDismiss = { showSubApiDialog = false },
+                title = if (isAr) "حسابات الترجمة الخارجية" else "External Subtitle Accounts",
+                onDismiss = { showSubtitleAccountsDialog = false },
                 maxWidth = 580.dp,
                 scrollableBody = true,
                 footer = {
@@ -513,44 +423,34 @@ fun SettingsScreen(
                                 .tvFocusItem(
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    onClick = { showSubApiDialog = false }
+                                    onClick = { showSubtitleAccountsDialog = false }
                                 )
                                 .padding(horizontal = 18.dp, vertical = 9.dp)
                         ) {
-                            Text(
-                                text = if (isAr) "إلغاء" else "Cancel",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                style = MaterialTheme.typography.labelLarge
-                            )
+                            Text(if (isAr) "إلغاء" else "Cancel", color = MaterialTheme.colorScheme.onSurface)
                         }
                         Box(
                             modifier = Modifier
                                 .tvFocusItem(
-                                    enabled = !isLoggingIn,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                                     onClick = {
                                         scope.launch {
-                                            isLoggingIn = true
-                                            val token = SubtitleRepository.loginOpenSubtitles(osKey, osUser, osPass).orEmpty()
-                                            settingsStore.updateSubtitleAccounts(osKey, osUser, osPass, token, subdlKey)
-                                            isLoggingIn = false
-                                            showSubApiDialog = false
-                                            Toast.makeText(
-                                                context,
-                                                if (isAr) "تم حفظ إعدادات الترجمة" else "Subtitle settings saved",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            settingsStore.updateSubtitleAccounts(
+                                                osApiKey = osKey.trim(),
+                                                osUser = osUser.trim(),
+                                                osPass = osPass.trim(),
+                                                osToken = "",
+                                                subdlApiKey = subdlKey.trim()
+                                            )
                                         }
+                                        showSubtitleAccountsDialog = false
+                                        Toast.makeText(context, if (isAr) "تم الحفظ" else "Saved", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                                 .padding(horizontal = 24.dp, vertical = 9.dp)
                         ) {
-                            Text(
-                                text = if (isAr) "حفظ" else "Save",
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                style = MaterialTheme.typography.labelLarge
-                            )
+                            Text(if (isAr) "حفظ" else "Save", color = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                 }
@@ -558,11 +458,11 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = osKey,
                     onValueChange = { osKey = it },
-                    label = { Text("OpenSubtitles.com Api-Key") },
+                    label = { Text("OpenSubtitles.com API Key") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = osUser,
@@ -637,7 +537,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "- ولاية غرداية - الجزائر",
+                        text = "ثانوية محمد الأخضر فيلالي - ولاية غرداية - الجزائر",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -652,6 +552,181 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SelectiveBackupDialog(
+    title: String,
+    confirmLabel: String,
+    portals: List<BackupPortalPreview>,
+    showFavoritesOption: Boolean,
+    favoritesLabelSuffix: String = "",
+    showSubtitlesOption: Boolean,
+    showSettingsOption: Boolean,
+    isAr: Boolean,
+    onConfirm: (BackupSelectionOptions) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedPortalKeys by remember(portals) {
+        mutableStateOf(portals.map { it.uniqueKey }.toSet())
+    }
+    var includeFavorites by remember { mutableStateOf(showFavoritesOption) }
+    var includeSubtitles by remember { mutableStateOf(showSubtitlesOption) }
+    var includeSettings by remember { mutableStateOf(showSettingsOption) }
+
+    TvModalDialog(
+        title = title,
+        onDismiss = onDismiss,
+        maxWidth = 560.dp,
+        scrollableBody = true,
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = onDismiss
+                        )
+                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                ) {
+                    Text(if (isAr) "إلغاء" else "Cancel", color = MaterialTheme.colorScheme.onSurface)
+                }
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = {
+                                onConfirm(
+                                    BackupSelectionOptions(
+                                        includePortals = selectedPortalKeys.isNotEmpty(),
+                                        selectedPortalKeys = selectedPortalKeys,
+                                        includeFavorites = includeFavorites,
+                                        includeSubtitleAccounts = includeSubtitles,
+                                        includeAppSettings = includeSettings
+                                    )
+                                )
+                            }
+                        )
+                        .padding(horizontal = 24.dp, vertical = 9.dp)
+                ) {
+                    Text(confirmLabel, color = MaterialTheme.colorScheme.onPrimary)
+                }
+            }
+        }
+    ) { firstRequester ->
+        var assignedFirst = false
+
+        if (portals.isNotEmpty()) {
+            Text(
+                text = if (isAr) "البوابات المضافة (اختر ما تريد):" else "Added Portals (Select):",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            portals.forEach { p ->
+                val checked = p.uniqueKey in selectedPortalKeys
+                val req = if (!assignedFirst) {
+                    assignedFirst = true
+                    firstRequester
+                } else null
+                BackupCheckRow(
+                    label = "${p.name} [${p.protocol}]",
+                    checked = checked,
+                    focusRequester = req,
+                    onToggle = {
+                        selectedPortalKeys = if (checked) {
+                            selectedPortalKeys - p.uniqueKey
+                        } else {
+                            selectedPortalKeys + p.uniqueKey
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        if (showFavoritesOption) {
+            val req = if (!assignedFirst) {
+                assignedFirst = true
+                firstRequester
+            } else null
+            BackupCheckRow(
+                label = (if (isAr) "قائمة المفضلة (Favorites)" else "Favorites List") + favoritesLabelSuffix,
+                checked = includeFavorites,
+                focusRequester = req,
+                onToggle = { includeFavorites = !includeFavorites }
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        if (showSubtitlesOption) {
+            val req = if (!assignedFirst) {
+                assignedFirst = true
+                firstRequester
+            } else null
+            BackupCheckRow(
+                label = if (isAr) "حسابات ومفاتيح الترجمة (OpenSubtitles / Subdl)" else "Subtitle Accounts & Keys",
+                checked = includeSubtitles,
+                focusRequester = req,
+                onToggle = { includeSubtitles = !includeSubtitles }
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        if (showSettingsOption) {
+            val req = if (!assignedFirst) {
+                assignedFirst = true
+                firstRequester
+            } else null
+            BackupCheckRow(
+                label = if (isAr) "إعدادات التطبيق (المظهر، الخط، الرقابة الأبوية)" else "Application Settings",
+                checked = includeSettings,
+                focusRequester = req,
+                onToggle = { includeSettings = !includeSettings }
+            )
+        }
+    }
+}
+
+@Composable
+private fun BackupCheckRow(
+    label: String,
+    checked: Boolean,
+    focusRequester: FocusRequester? = null,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .tvFocusItem(
+                focusRequester = focusRequester,
+                shape = RoundedCornerShape(8.dp),
+                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                onClick = onToggle
+            )
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (checked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+            contentDescription = null,
+            tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 

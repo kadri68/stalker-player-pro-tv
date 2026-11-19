@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.SettingsApplications
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -59,7 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -112,6 +112,7 @@ fun PortalsScreen(
     var showSmartParserDialog by remember { mutableStateOf(false) }
     var smartInitialText by remember { mutableStateOf("") }
     var selectedForMenu by remember { mutableStateOf<PortalEntity?>(null) }
+    var selectedForEdit by remember { mutableStateOf<PortalEntity?>(null) }
     var selectedForQr by remember { mutableStateOf<PortalEntity?>(null) }
     var selectedForRename by remember { mutableStateOf<PortalEntity?>(null) }
     var multiSelectMode by remember { mutableStateOf(false) }
@@ -119,7 +120,7 @@ fun PortalsScreen(
     var isCheckingAll by remember { mutableStateOf(false) }
 
     val anyDialogOpen = showAddDialog || showSmartParserDialog || selectedForMenu != null ||
-            selectedForQr != null || selectedForRename != null
+            selectedForEdit != null || selectedForQr != null || selectedForRename != null
 
     val stalkerList = remember(portals) { portals.filter { it.protocol == "STALKER" } }
     val xtreamList = remember(portals) { portals.filter { it.protocol == "XTREAM" } }
@@ -293,14 +294,12 @@ fun PortalsScreen(
                     label = if (isAr) "إضافة حساب" else "Add Account",
                     icon = Icons.Default.Add,
                     focusRequester = if (displayedPortals.isEmpty()) initialContentFocusRequester else null,
-                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = { showAddDialog = true }
                 )
 
                 ActionChipButton(
                     label = if (isAr) "لصق ذكي" else "Smart Paste",
                     icon = Icons.Default.ContentPaste,
-                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         smartInitialText = readClipboardText()
                         showSmartParserDialog = true
@@ -310,7 +309,6 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "المحلل الذكي" else "Smart Parser",
                     icon = Icons.Default.AutoFixHigh,
-                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         smartInitialText = ""
                         showSmartParserDialog = true
@@ -320,7 +318,6 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "ملف M3U" else "Import M3U",
                     icon = Icons.Default.VideoLibrary,
-                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         val ok = runCatching { m3uFileLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "*/*")) }.isSuccess
                         if (!ok) {
@@ -332,7 +329,6 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "ملف TXT" else "Import TXT",
                     icon = Icons.Default.FileOpen,
-                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         val ok = runCatching { txtImportLauncher.launch(arrayOf("text/plain", "*/*")) }.isSuccess
                         if (!ok) {
@@ -344,7 +340,6 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = "QR",
                     icon = Icons.Default.QrCodeScanner,
-                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         val ok = runCatching { qrImportLauncher.launch(arrayOf("image/*")) }.isSuccess
                         if (!ok) {
@@ -356,7 +351,6 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "فحص الكل" else "Check All",
                     icon = Icons.Default.CheckCircle,
-                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         if (!isCheckingAll && portals.isNotEmpty()) {
                             scope.launch {
@@ -379,7 +373,6 @@ fun PortalsScreen(
                     },
                     icon = Icons.Default.Delete,
                     isDestructive = multiSelectMode && selectedIds.isNotEmpty(),
-                    downTargetRequester = if (displayedPortals.isNotEmpty()) initialContentFocusRequester else null,
                     onClick = {
                         if (!multiSelectMode) {
                             multiSelectMode = true
@@ -417,11 +410,6 @@ fun PortalsScreen(
                     val active = selectedProtocolFilter == code
                     Box(
                         modifier = Modifier
-                            .then(
-                                if (displayedPortals.isNotEmpty()) {
-                                    Modifier.focusProperties { down = initialContentFocusRequester }
-                                } else Modifier
-                            )
                             .tvFocusItem(
                                 shape = RoundedCornerShape(8.dp),
                                 unfocusedBackgroundColor = if (active) {
@@ -524,7 +512,9 @@ fun PortalsScreen(
         }
 
         if (showAddDialog) {
-            AddPortalDialog(
+            PortalFormDialog(
+                title = if (isAr) "إضافة حساب جديد" else "Add New Account",
+                initialPortal = null,
                 isAr = isAr,
                 onSave = { newPortal ->
                     scope.launch {
@@ -533,6 +523,26 @@ fun PortalsScreen(
                     }
                 },
                 onDismiss = { showAddDialog = false }
+            )
+        }
+
+        selectedForEdit?.let { editingPortal ->
+            PortalFormDialog(
+                title = if (isAr) "تعديل بيانات البوابة" else "Edit Portal Details",
+                initialPortal = editingPortal,
+                isAr = isAr,
+                onSave = { updatedPortal ->
+                    scope.launch {
+                        val checked = refreshPortalStatus(updatedPortal.copy(id = editingPortal.id))
+                        dao.updatePortal(checked)
+                        Toast.makeText(
+                            context,
+                            if (isAr) "تم تحديث بيانات البوابة بنجاح" else "Portal updated successfully",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                onDismiss = { selectedForEdit = null }
             )
         }
 
@@ -587,8 +597,15 @@ fun PortalsScreen(
                 if (!isBuiltInFree) {
                     add(
                         TvMenuOption(
+                            id = "edit",
+                            label = if (isAr) "تعديل البوابة (الرابط / MAC / البيانات)" else "Edit Portal Details",
+                            icon = Icons.Default.SettingsApplications
+                        )
+                    )
+                    add(
+                        TvMenuOption(
                             id = "rename",
-                            label = if (isAr) "إعادة تسمية (5 حروف)" else "Rename (5 chars)",
+                            label = if (isAr) "إعادة تسمية (حتى 10 حروف)" else "Rename (up to 10 chars)",
                             icon = Icons.Default.Edit
                         )
                     )
@@ -603,7 +620,7 @@ fun PortalsScreen(
                 }
             }
             TvActionMenuDialog(
-                title = portal.name,
+                title = portal.name.take(10),
                 options = opts,
                 onSelect = { opt ->
                     when (opt.id) {
@@ -611,6 +628,7 @@ fun PortalsScreen(
                         "up" -> scope.launch { dao.movePortal(portal.id, moveUp = true) }
                         "down" -> scope.launch { dao.movePortal(portal.id, moveUp = false) }
                         "qr" -> selectedForQr = portal
+                        "edit" -> selectedForEdit = portal
                         "rename" -> selectedForRename = portal
                         "delete" -> if (!isBuiltInFree) {
                             scope.launch { dao.deletePortalsByIds(listOf(portal.id)) }
@@ -627,8 +645,8 @@ fun PortalsScreen(
 
         selectedForRename?.let { portal ->
             TvTextInputDialog(
-                title = if (isAr) "تعديل اسم البوابة (5 حروف الأولى)" else "Rename Portal (First 5 chars)",
-                initialValue = portal.name,
+                title = if (isAr) "إعادة تسمية البوابة (حتى 10 حروف)" else "Rename Portal (Up to 10 chars)",
+                initialValue = portal.name.take(10),
                 confirmLabel = if (isAr) "حفظ" else "Save",
                 onConfirm = { newName ->
                     val shortName = SmartMultiParser.shortPortalName(newName, portal.name)
@@ -740,7 +758,7 @@ private fun PortalCardItem(
                         )
                     }
                     LtrText(
-                        text = portal.name.take(5),
+                        text = portal.name.take(10),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -841,7 +859,6 @@ private fun ActionChipButton(
     label: String,
     icon: ImageVector,
     focusRequester: FocusRequester? = null,
-    downTargetRequester: FocusRequester? = null,
     isDestructive: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -849,11 +866,6 @@ private fun ActionChipButton(
     val fg = if (isDestructive) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = Modifier
-            .then(
-                if (downTargetRequester != null) {
-                    Modifier.focusProperties { down = downTargetRequester }
-                } else Modifier
-            )
             .tvFocusItem(
                 focusRequester = focusRequester,
                 shape = RoundedCornerShape(10.dp),
@@ -870,20 +882,25 @@ private fun ActionChipButton(
 }
 
 @Composable
-private fun AddPortalDialog(
+private fun PortalFormDialog(
+    title: String,
+    initialPortal: PortalEntity?,
     isAr: Boolean,
     onSave: (PortalEntity) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedProtocol by remember { mutableStateOf(ProtocolType.STALKER) }
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("http://") }
-    var mac by remember { mutableStateOf("00:1A:79:") }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    val initialProto = remember(initialPortal) {
+        ProtocolType.entries.find { it.code == initialPortal?.protocol } ?: ProtocolType.STALKER
+    }
+    var selectedProtocol by remember { mutableStateOf(initialProto) }
+    var name by remember { mutableStateOf(initialPortal?.name.orEmpty()) }
+    var url by remember { mutableStateOf(initialPortal?.url ?: "http://") }
+    var mac by remember { mutableStateOf(initialPortal?.mac?.ifBlank { "00:1A:79:" } ?: "00:1A:79:") }
+    var username by remember { mutableStateOf(initialPortal?.username.orEmpty()) }
+    var password by remember { mutableStateOf(initialPortal?.password.orEmpty()) }
 
     TvModalDialog(
-        title = if (isAr) "إضافة حساب جديد" else "Add New Account",
+        title = title,
         onDismiss = onDismiss,
         maxWidth = 560.dp,
         scrollableBody = true,
@@ -918,8 +935,13 @@ private fun AddPortalDialog(
                                         name.ifBlank { url },
                                         selectedProtocol.code
                                     )
+                                    val base = initialPortal ?: PortalEntity(
+                                        name = shortName,
+                                        protocol = selectedProtocol.code,
+                                        url = url.trim()
+                                    )
                                     onSave(
-                                        PortalEntity(
+                                        base.copy(
                                             name = shortName,
                                             protocol = selectedProtocol.code,
                                             url = url.trim(),
@@ -971,7 +993,7 @@ private fun AddPortalDialog(
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text(if (isAr) "اسم البوابة (يُؤخذ أول 5 حروف فقط)" else "Portal Name (First 5 chars)") },
+            label = { Text(if (isAr) "اسم البوابة (حتى 10 حروف)" else "Portal Name (Up to 10 chars)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )

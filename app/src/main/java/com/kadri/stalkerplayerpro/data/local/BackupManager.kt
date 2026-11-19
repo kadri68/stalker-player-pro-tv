@@ -1,8 +1,8 @@
 package com.kadri.stalkerplayerpro.data.local
 
 import android.content.Context
-import android.net.Uri
 import android.os.Environment
+import com.kadri.stalkerplayerpro.ui.screens.BUILTIN_FREE_AR_M3U_URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -10,9 +10,34 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
+data class BackupSelectionOptions(
+    val includePortals: Boolean = true,
+    val selectedPortalKeys: Set<String>? = null, // null = جميع البوابات المضافة (باستثناء AR-TV المجانية)
+    val includeFavorites: Boolean = true,
+    val includeSubtitleAccounts: Boolean = true,
+    val includeAppSettings: Boolean = true
+)
+
+data class BackupPortalPreview(
+    val uniqueKey: String,
+    val name: String,
+    val protocol: String,
+    val url: String
+)
+
+data class BackupInspectionResult(
+    val portals: List<BackupPortalPreview>,
+    val favoritesCount: Int,
+    val hasSubtitleAccounts: Boolean,
+    val hasAppSettings: Boolean
+)
+
 object BackupManager {
 
     private const val DEFAULT_BACKUP_FILENAME = "stalker_player_pro_backup.json"
+
+    fun portalBackupKey(url: String, mac: String, username: String): String =
+        "${url.trim()}|${mac.trim().uppercase()}|${username.trim()}"
 
     fun getDefaultBackupFile(context: Context): File {
         val publicDownloads = runCatching {
@@ -26,31 +51,83 @@ object BackupManager {
         return File(appDir, DEFAULT_BACKUP_FILENAME)
     }
 
-    suspend fun buildBackupJsonString(dao: AppDao, settingsStore: SettingsDataStore): String =
-        withContext(Dispatchers.IO) {
-            val portals = dao.getAllPortals()
-            val favorites = dao.getAllFavorites()
-            val settings = settingsStore.settingsFlow.first()
+    fun inspectBackupJson(rawJson: String): BackupInspectionResult? {
+        return runCatching {
+            val clean = rawJson.trim().removePrefix("\uFEFF")
+            if (clean.isBlank()) return@runCatching null
+            val root = JSONObject(clean)
 
-            val portalsArr = JSONArray()
-            portals.forEach { p ->
-                portalsArr.put(
-                    JSONObject().apply {
-                        put("name", p.name)
-                        put("protocol", p.protocol)
-                        put("url", p.url)
-                        put("mac", p.mac)
-                        put("username", p.username)
-                        put("password", p.password)
-                        put("expiryTimestampMs", p.expiryTimestampMs)
-                        put("isFavorite", p.isFavorite)
-                        put("orderIndex", p.orderIndex)
-                        put("isActive", p.isActive)
-                    }
-                )
+            val previews = mutableListOf<BackupPortalPreview>()
+            val portalsArr = root.optJSONArray("portals")
+            if (portalsArr != null) {
+                for (i in 0 until portalsArr.length()) {
+                    val obj = portalsArr.optJSONObject(i) ?: continue
+                    val url = obj.optString("url").trim()
+                    if (url.isBlank() || url == BUILTIN_FREE_AR_M3U_URL) continue
+                    val mac = obj.optString("mac")
+                    val user = obj.optString("username")
+                    previews.add(
+                        BackupPortalPreview(
+                            uniqueKey = portalBackupKey(url, mac, user),
+                            name = obj.optString("name", "Portal ${i + 1}").take(10),
+                            protocol = obj.optString("protocol", "STALKER"),
+                            url = url
+                        )
+                    )
+                }
             }
+            val favCount = root.optJSONArray("favorites")?.length() ?: 0
+            val s = root.optJSONObject("settings")
+            val hasSubs = s != null && (
+                s.optString("openSubApiKey").isNotBlank() ||
+                s.optString("openSubUsername").isNotBlank() ||
+                s.optString("subdlApiKey").isNotBlank() ||
+                s.has("subtitleEngine")
+            )
+            BackupInspectionResult(
+                portals = previews,
+                favoritesCount = favCount,
+                hasSubtitleAccounts = hasSubs,
+                hasAppSettings = s != null
+            )
+        }.getOrNull()
+    }
 
-            val favsArr = JSONArray()
+    suspend fun buildBackupJsonString(
+        dao: AppDao,
+        settingsStore: SettingsDataStore,
+        options: BackupSelectionOptions = BackupSelectionOptions()
+    ): String = withContext(Dispatchers.IO) {
+        // استثناء بوابة القنوات المجانية المدمجة AR-TV تلقائياً لأنها تأتي مع التطبيق دائماً
+        val portals = dao.getAllPortals().filter { it.url != BUILTIN_FREE_AR_M3U_URL }
+        val favorites = dao.getAllFavorites()
+        val settings = settingsStore.settingsFlow.first()
+
+        val portalsArr = JSONArray()
+        if (options.includePortals) {
+            portals.forEach { p ->
+                val key = portalBackupKey(p.url, p.mac, p.username)
+                if (options.selectedPortalKeys == null || key in options.selectedPortalKeys) {
+                    portalsArr.put(
+                        JSONObject().apply {
+                            put("name", p.name.take(10))
+                            put("protocol", p.protocol)
+                            put("url", p.url)
+                            put("mac", p.mac)
+                            put("username", p.username)
+                            put("password", p.password)
+                            put("expiryTimestampMs", p.expiryTimestampMs)
+                            put("isFavorite", p.isFavorite)
+                            put("orderIndex", p.orderIndex)
+                            put("isActive", p.isActive)
+                        }
+                    )
+                }
+            }
+        }
+
+        val favsArr = JSONArray()
+        if (options.includeFavorites) {
             favorites.forEach { f ->
                 favsArr.put(
                     JSONObject().apply {
@@ -64,8 +141,10 @@ object BackupManager {
                     }
                 )
             }
+        }
 
-            val settingsObj = JSONObject().apply {
+        val settingsObj = JSONObject().apply {
+            if (options.includeAppSettings) {
                 put("themeId", settings.themeId)
                 put("fontScaleId", settings.fontScaleId)
                 put("language", settings.language)
@@ -73,108 +152,132 @@ object BackupManager {
                 put("clockCorner", settings.clockCorner)
                 put("showClock", settings.showClock)
                 put("preferredAudioLang", settings.preferredAudioLang)
-                put("openSubApiKey", settings.openSubApiKey)
-                put("openSubUsername", settings.openSubUsername)
-                put("openSubPassword", settings.openSubPassword)
-                put("subdlApiKey", settings.subdlApiKey)
                 put("subTextColor", settings.subTextColor)
                 put("subFontSizeSp", settings.subFontSizeSp.toDouble())
                 put("subBgAlpha", settings.subBgAlpha.toDouble())
             }
-
-            JSONObject().apply {
-                put("app", "stalker-player pro")
-                put("version", 1)
-                put("exportedAtMs", System.currentTimeMillis())
-                put("portals", portalsArr)
-                put("favorites", favsArr)
-                put("settings", settingsObj)
-            }.toString(2)
+            if (options.includeSubtitleAccounts) {
+                put("subtitleEngine", settings.subtitleEngine)
+                put("openSubApiKey", settings.openSubApiKey)
+                put("openSubUsername", settings.openSubUsername)
+                put("openSubPassword", settings.openSubPassword)
+                put("subdlApiKey", settings.subdlApiKey)
+            }
         }
+
+        JSONObject().apply {
+            put("app", "stalker-player pro")
+            put("version", 2)
+            put("exportedAtMs", System.currentTimeMillis())
+            put("portals", portalsArr)
+            put("favorites", favsArr)
+            put("settings", settingsObj)
+        }.toString(2)
+    }
 
     suspend fun parseAndApplyBackupJson(
         rawJson: String,
         dao: AppDao,
-        settingsStore: SettingsDataStore
+        settingsStore: SettingsDataStore,
+        options: BackupSelectionOptions = BackupSelectionOptions()
     ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val clean = rawJson.trim().removePrefix("\uFEFF")
             if (clean.isBlank()) return@withContext false
             val root = JSONObject(clean)
 
-            val portalsArr = root.optJSONArray("portals")
-            if (portalsArr != null) {
-                val importedPortals = ArrayList<PortalEntity>(portalsArr.length())
-                for (i in 0 until portalsArr.length()) {
-                    val obj = portalsArr.optJSONObject(i) ?: continue
-                    val url = obj.optString("url").trim()
-                    if (url.isNotBlank()) {
+            if (options.includePortals) {
+                val portalsArr = root.optJSONArray("portals")
+                if (portalsArr != null) {
+                    val existingKeys = dao.getAllPortals()
+                        .map { portalBackupKey(it.url, it.mac, it.username) }
+                        .toHashSet()
+                    val importedPortals = ArrayList<PortalEntity>(portalsArr.length())
+                    for (i in 0 until portalsArr.length()) {
+                        val obj = portalsArr.optJSONObject(i) ?: continue
+                        val url = obj.optString("url").trim()
+                        if (url.isBlank() || url == BUILTIN_FREE_AR_M3U_URL) continue
+                        val mac = obj.optString("mac")
+                        val user = obj.optString("username")
+                        val key = portalBackupKey(url, mac, user)
+                        if (options.selectedPortalKeys != null && key !in options.selectedPortalKeys) continue
+                        if (key in existingKeys) continue
+
                         importedPortals.add(
                             PortalEntity(
-                                name = obj.optString("name", "Portal ${i + 1}"),
+                                name = obj.optString("name", "Portal ${i + 1}").take(10),
                                 protocol = obj.optString("protocol", "STALKER"),
                                 url = url,
-                                mac = obj.optString("mac"),
-                                username = obj.optString("username"),
+                                mac = mac,
+                                username = user,
                                 password = obj.optString("password"),
                                 expiryTimestampMs = obj.optLong("expiryTimestampMs", 0L),
                                 isFavorite = obj.optBoolean("isFavorite", false),
                                 orderIndex = obj.optInt("orderIndex", i),
-                                isActive = obj.optBoolean("isActive", false)
+                                isActive = false
                             )
                         )
                     }
-                }
-                if (importedPortals.isNotEmpty()) {
-                    dao.insertPortals(importedPortals)
-                    if (dao.getActivePortal() == null) {
-                        dao.getAllPortals().firstOrNull()?.let { dao.setActivePortal(it.id) }
+                    if (importedPortals.isNotEmpty()) {
+                        dao.insertPortals(importedPortals)
+                        if (dao.getActivePortal() == null) {
+                            dao.getAllPortals().firstOrNull()?.let { dao.setActivePortal(it.id) }
+                        }
                     }
                 }
             }
 
-            val favsArr = root.optJSONArray("favorites")
-            if (favsArr != null) {
-                for (i in 0 until favsArr.length()) {
-                    val obj = favsArr.optJSONObject(i) ?: continue
-                    val itemId = obj.optString("itemId").trim()
-                    if (itemId.isNotBlank()) {
-                        dao.addFavorite(
-                            FavoriteEntity(
-                                portalId = obj.optLong("portalId", 1L),
-                                contentType = obj.optString("contentType", "LIVE"),
-                                itemId = itemId,
-                                title = obj.optString("title"),
-                                logoOrPoster = obj.optString("logoOrPoster"),
-                                streamCmdOrUrl = obj.optString("streamCmdOrUrl"),
-                                categoryId = obj.optString("categoryId")
+            if (options.includeFavorites) {
+                val favsArr = root.optJSONArray("favorites")
+                if (favsArr != null) {
+                    for (i in 0 until favsArr.length()) {
+                        val obj = favsArr.optJSONObject(i) ?: continue
+                        val itemId = obj.optString("itemId").trim()
+                        if (itemId.isNotBlank()) {
+                            dao.addFavorite(
+                                FavoriteEntity(
+                                    portalId = obj.optLong("portalId", 1L),
+                                    contentType = obj.optString("contentType", "LIVE"),
+                                    itemId = itemId,
+                                    title = obj.optString("title"),
+                                    logoOrPoster = obj.optString("logoOrPoster"),
+                                    streamCmdOrUrl = obj.optString("streamCmdOrUrl"),
+                                    categoryId = obj.optString("categoryId")
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
 
             val s = root.optJSONObject("settings")
             if (s != null) {
-                settingsStore.updateTheme(s.optInt("themeId", 0))
-                settingsStore.updateFontScale(s.optInt("fontScaleId", 0))
-                settingsStore.updateLanguage(s.optString("language", "ar"))
-                settingsStore.updateParentalPin(s.optString("parentalPin", "0000"))
-                settingsStore.updateClockCorner(s.optInt("clockCorner", 0))
-                settingsStore.updateShowClock(s.optBoolean("showClock", true))
-                settingsStore.updatePreferredAudioLang(s.optString("preferredAudioLang", "ar"))
-                settingsStore.updateSubtitleAccounts(
-                    osApiKey = s.optString("openSubApiKey"),
-                    osUser = s.optString("openSubUsername"),
-                    osPass = s.optString("openSubPassword"),
-                    osToken = "",
-                    subdlApiKey = s.optString("subdlApiKey")
-                )
-                settingsStore.updateSubtitleStyle(
-                    color = s.optLong("subTextColor", 0xFFFFFFFF),
-                    sizeSp = s.optDouble("subFontSizeSp", 24.0).toFloat(),
-                    bgAlpha = s.optDouble("subBgAlpha", 0.65).toFloat()
-                )
+                if (options.includeAppSettings && s.has("themeId")) {
+                    settingsStore.updateTheme(s.optInt("themeId", 0))
+                    settingsStore.updateFontScale(s.optInt("fontScaleId", -1))
+                    settingsStore.updateLanguage(s.optString("language", "ar"))
+                    settingsStore.updateParentalPin(s.optString("parentalPin", "0000"))
+                    settingsStore.updateClockCorner(s.optInt("clockCorner", 0))
+                    settingsStore.updateShowClock(s.optBoolean("showClock", true))
+                    settingsStore.updatePreferredAudioLang(s.optString("preferredAudioLang", "ar"))
+                    settingsStore.updateSubtitleStyle(
+                        color = s.optLong("subTextColor", 0xFFFFFFFF),
+                        sizeSp = s.optDouble("subFontSizeSp", 24.0).toFloat(),
+                        bgAlpha = s.optDouble("subBgAlpha", 0.65).toFloat()
+                    )
+                }
+                if (options.includeSubtitleAccounts && (s.has("openSubApiKey") || s.has("subdlApiKey") || s.has("subtitleEngine"))) {
+                    if (s.has("subtitleEngine")) {
+                        settingsStore.updateSubtitleEngine(s.optString("subtitleEngine", "BOTH"))
+                    }
+                    settingsStore.updateSubtitleAccounts(
+                        osApiKey = s.optString("openSubApiKey"),
+                        osUser = s.optString("openSubUsername"),
+                        osPass = s.optString("openSubPassword"),
+                        osToken = "",
+                        subdlApiKey = s.optString("subdlApiKey")
+                    )
+                }
             }
             true
         }.getOrDefault(false)
@@ -183,10 +286,11 @@ object BackupManager {
     suspend fun exportToDefaultFolder(
         context: Context,
         dao: AppDao,
-        settingsStore: SettingsDataStore
+        settingsStore: SettingsDataStore,
+        options: BackupSelectionOptions = BackupSelectionOptions()
     ): String? = withContext(Dispatchers.IO) {
         runCatching {
-            val json = buildBackupJsonString(dao, settingsStore)
+            val json = buildBackupJsonString(dao, settingsStore, options)
             val file = getDefaultBackupFile(context)
             file.writeText(json, Charsets.UTF_8)
             file.absolutePath
@@ -196,40 +300,12 @@ object BackupManager {
     suspend fun importFromDefaultFolder(
         context: Context,
         dao: AppDao,
-        settingsStore: SettingsDataStore
+        settingsStore: SettingsDataStore,
+        options: BackupSelectionOptions = BackupSelectionOptions()
     ): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val file = getDefaultBackupFile(context)
-            if (!file.exists()) return@withContext false
-            parseAndApplyBackupJson(file.readText(Charsets.UTF_8), dao, settingsStore)
-        }.getOrDefault(false)
-    }
-
-    suspend fun exportBackupToUri(
-        context: Context,
-        uri: Uri,
-        dao: AppDao,
-        settingsStore: SettingsDataStore
-    ): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val json = buildBackupJsonString(dao, settingsStore)
-            context.contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(json.toByteArray(Charsets.UTF_8))
-            } ?: return@withContext false
-            true
-        }.getOrDefault(false)
-    }
-
-    suspend fun importBackupFromUri(
-        context: Context,
-        uri: Uri,
-        dao: AppDao,
-        settingsStore: SettingsDataStore
-    ): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                ?: return@withContext false
-            parseAndApplyBackupJson(raw, dao, settingsStore)
-        }.getOrDefault(false)
+        val file = getDefaultBackupFile(context)
+        if (!file.exists() || file.length() == 0L) return@withContext false
+        val raw = runCatching { file.readText(Charsets.UTF_8) }.getOrNull() ?: return@withContext false
+        parseAndApplyBackupJson(raw, dao, settingsStore, options)
     }
 }
