@@ -311,7 +311,7 @@ fun SettingsScreen(
                                 }
                             }
                         } else {
-                            val ok = runCatching { importFileLauncher.launch(arrayOf("application/json", "*/*")) }.isSuccess
+                            val ok = runCatching { com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; importFileLauncher.launch(arrayOf("application/json", "*/*")) }.isSuccess
                             if (!ok) {
                                 Toast.makeText(context, if (isAr) "متصفح الملفات غير متوفر" else "File picker unavailable", Toast.LENGTH_SHORT).show()
                             }
@@ -356,7 +356,7 @@ fun SettingsScreen(
                             ).show()
                         } else {
                             pendingExportJson.value = BackupManager.buildBackupJsonString(dao, settingsStore, options)
-                            exportFileLauncher.launch("stalker_player_pro_backup.json")
+                            com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; exportFileLauncher.launch("stalker_player_pro_backup.json")
                         }
                     }
                 },

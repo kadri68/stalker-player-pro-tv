@@ -319,7 +319,7 @@ fun PortalsScreen(
                     label = if (isAr) "ملف M3U" else "Import M3U",
                     icon = Icons.Default.VideoLibrary,
                     onClick = {
-                        val ok = runCatching { m3uFileLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "*/*")) }.isSuccess
+                        val ok = runCatching { com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; m3uFileLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "*/*")) }.isSuccess
                         if (!ok) {
                             Toast.makeText(context, if (isAr) "متصفح الملفات غير متوفر" else "File picker unavailable", Toast.LENGTH_SHORT).show()
                         }
@@ -330,7 +330,7 @@ fun PortalsScreen(
                     label = if (isAr) "ملف TXT" else "Import TXT",
                     icon = Icons.Default.FileOpen,
                     onClick = {
-                        val ok = runCatching { txtImportLauncher.launch(arrayOf("text/plain", "*/*")) }.isSuccess
+                        val ok = runCatching { com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; txtImportLauncher.launch(arrayOf("text/plain", "*/*")) }.isSuccess
                         if (!ok) {
                             Toast.makeText(context, if (isAr) "استخدم اللصق الذكي" else "Use Smart Paste", Toast.LENGTH_SHORT).show()
                         }
@@ -341,7 +341,7 @@ fun PortalsScreen(
                     label = "QR",
                     icon = Icons.Default.QrCodeScanner,
                     onClick = {
-                        val ok = runCatching { qrImportLauncher.launch(arrayOf("image/*")) }.isSuccess
+                        val ok = runCatching { com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; qrImportLauncher.launch(arrayOf("image/*")) }.isSuccess
                         if (!ok) {
                             Toast.makeText(context, if (isAr) "متصفح الصور غير متوفر" else "Gallery unavailable", Toast.LENGTH_SHORT).show()
                         }

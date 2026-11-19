@@ -100,6 +100,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val ACTION_PIP_CLOSE = "com.kadri.stalkerplayerpro.ACTION_PIP_CLOSE"
+        @Volatile
+        var isLaunchingExternalPicker: Boolean = false
     }
 
     private var isInPipModeState by mutableStateOf(false)
@@ -167,6 +169,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        isLaunchingExternalPicker = false
+    }
+
     override fun onStart() {
         super.onStart()
         isInPipModeState = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
@@ -179,6 +186,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (isLaunchingExternalPicker) return
         if (isPlayerActiveForPip && !isInPipModeState) {
             requestPipMode()
         } else if (!isInPipModeState) {
