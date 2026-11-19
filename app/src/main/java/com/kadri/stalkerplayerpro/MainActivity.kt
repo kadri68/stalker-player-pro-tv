@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -394,6 +395,7 @@ private fun MainTvRoot(
                                     )
                                 } else Modifier
                             )
+                            .focusProperties { down = contentFocusRequester }
                             .onFocusChanged { fState ->
                                 if (fState.isFocused) {
                                     focusedTabIndex = idx
@@ -437,7 +439,7 @@ private fun MainTvRoot(
 
                 if (activePortal != null) {
                     LtrText(
-                        text = "[${activePortal!!.name.take(5)}]",
+                        text = "[${activePortal!!.name.take(10)}]",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.secondary

@@ -90,6 +90,8 @@ import com.kadri.stalkerplayerpro.ui.components.TvMenuOption
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
 import com.kadri.stalkerplayerpro.ui.components.TvPinDialog
 import com.kadri.stalkerplayerpro.ui.components.TvTextInputDialog
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -193,9 +195,11 @@ fun LiveTvScreen(
             hasError = false
 
             when (portal.protocol) {
-                "XTREAM" -> {
-                    val cats = XtreamApiClient.getCategories(portal, "get_live_categories")
-                    val chs = XtreamApiClient.getLiveStreams(portal)
+                "XTREAM" -> coroutineScope {
+                    val catsDef = async { XtreamApiClient.getCategories(portal, "get_live_categories") }
+                    val chsDef = async { XtreamApiClient.getLiveStreams(portal) }
+                    val cats = catsDef.await()
+                    val chs = chsDef.await()
                     categories = cats
                     rawChannels = chs
                     hasError = chs.isEmpty()
@@ -203,9 +207,11 @@ fun LiveTvScreen(
                         PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
                     }
                 }
-                "STALKER" -> {
-                    val cats = StalkerApiClient.getItvGenres(portal)
-                    val chs = StalkerApiClient.getAllChannels(portal)
+                "STALKER" -> coroutineScope {
+                    val catsDef = async { StalkerApiClient.getItvGenres(portal) }
+                    val chsDef = async { StalkerApiClient.getAllChannels(portal) }
+                    val cats = catsDef.await()
+                    val chs = chsDef.await()
                     categories = cats
                     rawChannels = chs
                     hasError = chs.isEmpty()
@@ -270,11 +276,16 @@ fun LiveTvScreen(
         } else 0
     }
 
-    LaunchedEffect(isLoading, lastFocusedChannelId, anyPopupOpen) {
-        if (!isLoading && filteredChannels.isNotEmpty() && !anyPopupOpen && lastFocusedChannelId != null) {
-            runCatching { channelListState.scrollToItem(targetChannelIndex) }
-            delay(70)
-            runCatching { channelsEntryRequester.requestFocus() }
+    LaunchedEffect(portal.id, isLoading, lastFocusedChannelId, anyPopupOpen) {
+        if (!isLoading && !anyPopupOpen) {
+            if (filteredChannels.isNotEmpty() && lastFocusedChannelId != null) {
+                runCatching { channelListState.scrollToItem(targetChannelIndex) }
+                delay(70)
+                runCatching { channelsEntryRequester.requestFocus() }
+            } else {
+                delay(80)
+                runCatching { initialContentFocusRequester.requestFocus() }
+            }
         }
     }
 

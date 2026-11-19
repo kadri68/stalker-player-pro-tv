@@ -185,7 +185,7 @@ fun SettingsScreen(
                 ClassicSettingsRow(
                     icon = Icons.Default.FormatSize,
                     title = if (isAr) "حجم خط الواجهة" else "UI Font Scale",
-                    valueText = if (isAr) currentFont.titleAr else currentFont.titleEn,
+                    valueText = if (isAr) currentFont.labelAr else currentFont.labelEn,
                     isAr = isAr,
                     onClick = {
                         val next = (currentFont.id + 1) % TvFontScale.entries.size

@@ -78,7 +78,14 @@ class DualPlayerController(
     var engineStatusNotice by mutableStateOf<String?>(null)
         private set
 
+    var isReconnecting by mutableStateOf(false)
+        private set
+
     private var currentUrl: String = ""
+    private var isLiveStream: Boolean = false
+    private var isManuallyPaused: Boolean = false
+    private var lastReconnectAttemptMs: Long = 0L
+    private var hasAppliedInitialVlcAudioPref: Boolean = false
     private var pendingSeekMs: Long = 0L
     private var autoSwitchedForUrl: Boolean = false
     private var hasRenderedFirstVideoFrame: Boolean = false
@@ -89,9 +96,13 @@ class DualPlayerController(
     private var vlcPlayer: MediaPlayer? = null
     private var attachedVlcLayout: VLCVideoLayout? = null
 
-    fun playStream(url: String, startPositionMs: Long = 0L, forceVlc: Boolean = false) {
+    fun playStream(url: String, startPositionMs: Long = 0L, forceVlc: Boolean = false, isLive: Boolean = false) {
         if (url.isBlank()) return
         currentUrl = url
+        isLiveStream = isLive
+        isManuallyPaused = false
+        isReconnecting = false
+        hasAppliedInitialVlcAudioPref = false
         pendingSeekMs = startPositionMs.coerceAtLeast(0L)
         autoSwitchedForUrl = forceVlc
         hasRenderedFirstVideoFrame = false
@@ -187,6 +198,12 @@ class DualPlayerController(
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
                 if (playbackState == Player.STATE_READY) {
                     durationMs = player.duration.coerceAtLeast(0L)
+                    isReconnecting = false
+                    if (engineStatusNotice?.contains("Reconnecting") == true) {
+                        engineStatusNotice = null
+                    }
+                } else if (playbackState == Player.STATE_ENDED && isLiveStream && !isManuallyPaused && currentUrl.isNotBlank()) {
+                    isReconnecting = true
                 }
             }
 
@@ -225,6 +242,10 @@ class DualPlayerController(
                     val pos = player.currentPosition.coerceAtLeast(0L)
                     engineStatusNotice = "Fallback -> LibVLC"
                     startLibVlc(currentUrl, pos)
+                } else if (isLiveStream && !isManuallyPaused && currentUrl.isNotBlank()) {
+                    isReconnecting = true
+                    isBuffering = true
+                    engineStatusNotice = "إعادة الاتصال بالبث... / Reconnecting..."
                 } else {
                     isBuffering = false
                 }
@@ -337,6 +358,10 @@ class DualPlayerController(
                     MediaPlayer.Event.Playing -> {
                         isPlaying = true
                         isBuffering = false
+                        isReconnecting = false
+                        if (engineStatusNotice?.contains("Reconnecting") == true) {
+                            engineStatusNotice = null
+                        }
                         durationMs = player.length.coerceAtLeast(0L)
                         if (pendingSeekMs > 0L) {
                             player.time = pendingSeekMs
@@ -344,9 +369,19 @@ class DualPlayerController(
                         }
                         refreshVlcAudioTracks(player)
                     }
-                    MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped, MediaPlayer.Event.EndReached -> {
+                    MediaPlayer.Event.Paused -> {
                         isPlaying = false
                         isBuffering = false
+                    }
+                    MediaPlayer.Event.Stopped, MediaPlayer.Event.EndReached, MediaPlayer.Event.EncounteredError -> {
+                        isPlaying = false
+                        if (isLiveStream && !isManuallyPaused && currentUrl.isNotBlank()) {
+                            isReconnecting = true
+                            isBuffering = true
+                            engineStatusNotice = "إعادة الاتصال بالبث... / Reconnecting..."
+                        } else {
+                            isBuffering = false
+                        }
                     }
                     MediaPlayer.Event.TimeChanged -> {
                         currentPositionMs = event.timeChanged.coerceAtLeast(0L)
@@ -386,9 +421,13 @@ class DualPlayerController(
             )
         }
         audioTracks = list
-        val prefTrack = list.find { it.language.contains(preferredAudioLang, ignoreCase = true) }
-        if (prefTrack != null && !prefTrack.isSelected) {
-            player.audioTrack = prefTrack.vlcTrackId
+        if (!hasAppliedInitialVlcAudioPref) {
+            hasAppliedInitialVlcAudioPref = true
+            val prefTrack = list.find { it.language.contains(preferredAudioLang, ignoreCase = true) }
+            if (prefTrack != null && !prefTrack.isSelected) {
+                player.audioTrack = prefTrack.vlcTrackId
+                audioTracks = list.map { it.copy(isSelected = it.id == prefTrack.id) }
+            }
         }
     }
 
@@ -398,22 +437,45 @@ class DualPlayerController(
             val group = exo.currentTracks.groups.getOrNull(track.groupIndex) ?: return
             exo.trackSelectionParameters = exo.trackSelectionParameters
                 .buildUpon()
-                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track.trackIndex))
+                .setPreferredAudioLanguage(null)
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .addOverride(TrackSelectionOverride(group.mediaTrackGroup, track.trackIndex))
                 .build()
+            audioTracks = audioTracks.map { it.copy(isSelected = it.id == track.id) }
         } else {
             val mp = vlcPlayer ?: return
             if (track.vlcTrackId >= 0) {
+                hasAppliedInitialVlcAudioPref = true
                 mp.audioTrack = track.vlcTrackId
-                refreshVlcAudioTracks(mp)
+                audioTracks = audioTracks.map { it.copy(isSelected = it.id == track.id) }
             }
         }
     }
 
     fun togglePlayPause() {
         if (activeEngine == ActiveEngineType.EXOPLAYER) {
-            exoPlayer?.let { if (it.isPlaying) it.pause() else it.play() }
+            exoPlayer?.let {
+                if (it.isPlaying) {
+                    isManuallyPaused = true
+                    isReconnecting = false
+                    it.pause()
+                } else {
+                    isManuallyPaused = false
+                    it.play()
+                }
+            }
         } else {
-            vlcPlayer?.let { if (it.isPlaying) it.pause() else it.play() }
+            vlcPlayer?.let {
+                if (it.isPlaying) {
+                    isManuallyPaused = true
+                    isReconnecting = false
+                    it.pause()
+                } else {
+                    isManuallyPaused = false
+                    it.play()
+                }
+            }
         }
     }
 
@@ -443,6 +505,21 @@ class DualPlayerController(
     fun syncPositionTick(): Long {
         val pos = getLivePositionMs()
         currentPositionMs = pos
+        if (isLiveStream && currentUrl.isNotBlank() && !isManuallyPaused) {
+            val exoNeedsReconnect = activeEngine == ActiveEngineType.EXOPLAYER &&
+                (isReconnecting || exoPlayer?.playbackState == Player.STATE_IDLE || exoPlayer?.playbackState == Player.STATE_ENDED)
+            val vlcNeedsReconnect = activeEngine == ActiveEngineType.LIBVLC &&
+                (isReconnecting || (vlcPlayer?.isPlaying == false && !isBuffering))
+            if ((exoNeedsReconnect || vlcNeedsReconnect) && System.currentTimeMillis() - lastReconnectAttemptMs >= 1500L) {
+                lastReconnectAttemptMs = System.currentTimeMillis()
+                isReconnecting = true
+                isBuffering = true
+                engineStatusNotice = "إعادة الاتصال بالبث... / Reconnecting..."
+                if (activeEngine == ActiveEngineType.EXOPLAYER) startExoPlayer(currentUrl, 0L)
+                else startLibVlc(currentUrl, 0L)
+                return pos
+            }
+        }
         if (activeEngine == ActiveEngineType.EXOPLAYER) {
             val exo = exoPlayer
             if (exo != null) {
@@ -514,6 +591,9 @@ class DualPlayerController(
 
     fun releaseAll() {
         currentUrl = ""
+        isLiveStream = false
+        isManuallyPaused = false
+        isReconnecting = false
         isPlaying = false
         isBuffering = false
         releaseExoOnly()

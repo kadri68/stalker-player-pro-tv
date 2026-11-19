@@ -76,6 +76,8 @@ import com.kadri.stalkerplayerpro.data.model.VodItem
 import com.kadri.stalkerplayerpro.data.network.StalkerApiClient
 import com.kadri.stalkerplayerpro.data.network.XtreamApiClient
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -175,29 +177,32 @@ fun VodScreen(
             hasError = false
 
             when (portal.protocol) {
-                "XTREAM" -> {
+                "XTREAM" -> coroutineScope {
                     val catAction = if (isSeriesMode) "get_series_categories" else "get_vod_categories"
-                    if (categories.isEmpty() || forceRefresh) {
-                        categories = XtreamApiClient.getCategories(portal, catAction)
+                    val catsDef = if (categories.isEmpty() || forceRefresh) {
+                        async { XtreamApiClient.getCategories(portal, catAction) }
+                    } else null
+                    val itemsDef = async {
+                        if (isSeriesMode) XtreamApiClient.getSeriesList(portal, catId)
+                        else XtreamApiClient.getVodStreams(portal, catId)
                     }
-                    val items = if (isSeriesMode) {
-                        XtreamApiClient.getSeriesList(portal, catId)
-                    } else {
-                        XtreamApiClient.getVodStreams(portal, catId)
-                    }
+                    if (catsDef != null) categories = catsDef.await()
+                    val items = itemsDef.await()
                     allLoadedItems = items
                     hasError = items.isEmpty()
                     if (items.isNotEmpty()) {
                         PortalCacheStore.saveVodCache(context, portal.id, isSeriesMode, catId, categories, items)
                     }
                 }
-                "STALKER" -> {
+                "STALKER" -> coroutineScope {
                     val stkType = if (isSeriesMode) "series" else "vod"
-                    if (categories.isEmpty() || forceRefresh) {
-                        categories = StalkerApiClient.getVodCategories(portal, stkType)
-                    }
+                    val catsDef = if (categories.isEmpty() || forceRefresh) {
+                        async { StalkerApiClient.getVodCategories(portal, stkType) }
+                    } else null
                     val stkCat = if (catId == "ALL") "*" else catId
-                    val items = StalkerApiClient.getVodOrderedList(portal, stkType, stkCat, page = 1)
+                    val itemsDef = async { StalkerApiClient.getVodOrderedList(portal, stkType, stkCat, page = 1) }
+                    if (catsDef != null) categories = catsDef.await()
+                    val items = itemsDef.await()
                     allLoadedItems = items
                     hasError = items.isEmpty()
                     if (items.isNotEmpty()) {
@@ -246,11 +251,16 @@ fun VodScreen(
         } else 0
     }
 
-    LaunchedEffect(isLoading, lastFocusedItemId, selectedSeriesForEpisodes) {
-        if (!isLoading && pagedItems.isNotEmpty() && selectedSeriesForEpisodes == null && lastFocusedItemId != null) {
-            runCatching { gridState.scrollToItem(targetItemIndex) }
-            delay(70)
-            runCatching { itemsEntryRequester.requestFocus() }
+    LaunchedEffect(portal.id, isSeriesMode, isLoading, lastFocusedItemId, selectedSeriesForEpisodes) {
+        if (!isLoading && selectedSeriesForEpisodes == null) {
+            if (pagedItems.isNotEmpty() && lastFocusedItemId != null) {
+                runCatching { gridState.scrollToItem(targetItemIndex) }
+                delay(70)
+                runCatching { itemsEntryRequester.requestFocus() }
+            } else {
+                delay(80)
+                runCatching { initialContentFocusRequester.requestFocus() }
+            }
         }
     }
 

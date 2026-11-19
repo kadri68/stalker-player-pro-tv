@@ -231,7 +231,7 @@ fun TvPlayerScreen(
 
         val resolvedType = if (currentRequest.contentType == "LIVE") "itv" else "vod"
         val playableUrl = resolvePlayableUrl(currentRequest.portal, currentRequest.streamCmdOrUrl, resolvedType)
-        controller.playStream(playableUrl, currentRequest.resumePositionMs)
+        controller.playStream(playableUrl, currentRequest.resumePositionMs, isLive = (currentRequest.contentType == "LIVE"))
 
         // تسجيل القناة أو الفيلم في سجل المشاهدة للوصول السريع
         dao.upsertWatchHistory(
@@ -1566,13 +1566,13 @@ private fun SubtitleSearchDialog(
                 ).orEmpty()
             }
 
-            val osList = SubtitleRepository.searchOpenSubtitles(
+            val osList = if (settings.subtitleEngine == "SUBDL") emptyList() else SubtitleRepository.searchOpenSubtitles(
                 apiKey = settings.openSubApiKey,
                 jwtToken = jwt,
                 rawQuery = cleanTitle,
                 year = extractedYear
             )
-            val subdlList = SubtitleRepository.searchSubdl(
+            val subdlList = if (settings.subtitleEngine == "OPENSUBTITLES") emptyList() else SubtitleRepository.searchSubdl(
                 apiKey = settings.subdlApiKey,
                 rawQuery = cleanTitle,
                 year = extractedYear
