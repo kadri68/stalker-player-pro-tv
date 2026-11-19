@@ -281,7 +281,7 @@ fun SettingsScreen(
                     ClassicSettingsRow(
                         icon = Icons.Default.Info,
                         title = if (isAr) "حول التطبيق ومعلومات المطور" else "About App & Developer",
-                        valueText = "v1.7.0",
+                        valueText = "v1.8.0",
                         isAr = isAr,
                         onClick = { showAboutDialog = true }
                     )

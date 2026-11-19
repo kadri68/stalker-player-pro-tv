@@ -1,11 +1,17 @@
 package com.kadri.stalkerplayerpro
 
+import android.app.PendingIntent
 import android.app.PictureInPictureParams
+import android.app.RemoteAction
 import android.app.UiModeManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.drawable.Icon as AndroidIcon
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -60,6 +66,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -84,7 +91,24 @@ import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        private const val ACTION_PIP_CLOSE = "com.kadri.stalkerplayerpro.ACTION_PIP_CLOSE"
+    }
+
     private var isInPipModeState by mutableStateOf(false)
+    private var isPlayerActiveForPip by mutableStateOf(false)
+    private var forceStopPlaybackSignal by mutableIntStateOf(0)
+
+    private val pipCloseReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_PIP_CLOSE) {
+                forceStopPlaybackSignal++
+                isPlayerActiveForPip = false
+                isInPipModeState = false
+                finishAndRemoveTask()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,6 +119,13 @@ class MainActivity : ComponentActivity() {
         val insetsController = WindowCompat.getInsetsController(window, window.decorView)
         insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         insetsController.hide(WindowInsetsCompat.Type.systemBars())
+
+        ContextCompat.registerReceiver(
+            this,
+            pipCloseReceiver,
+            IntentFilter(ACTION_PIP_CLOSE),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         val app = application as StalkerApp
 
@@ -116,6 +147,11 @@ class MainActivity : ComponentActivity() {
                         isAr = isAr,
                         isTv = isTv,
                         isInPipMode = isInPipModeState,
+                        forceStopSignal = forceStopPlaybackSignal,
+                        onPlayerActiveChanged = { active ->
+                            isPlayerActiveForPip = active
+                            updateAutoPipParams(active)
+                        },
                         onEnterPip = { requestPipMode() },
                         onFinishApp = { finishAndRemoveTask() }
                     )
@@ -124,12 +160,57 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        runCatching { unregisterReceiver(pipCloseReceiver) }
+        super.onDestroy()
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (isPlayerActiveForPip && !isInPipModeState) {
+            requestPipMode()
+        }
+    }
+
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
         newConfig: Configuration
     ) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        super.onPictureInPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         isInPipModeState = isInPictureInPictureMode
+    }
+
+    private fun buildPipParams(autoEnter: Boolean): PictureInPictureParams? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        val closeIntent = Intent(ACTION_PIP_CLOSE).setPackage(packageName)
+        val closePendingIntent = PendingIntent.getBroadcast(
+            this,
+            101,
+            closeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val closeIcon = AndroidIcon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel)
+        val closeAction = RemoteAction(closeIcon, "Close", "Close Player", closePendingIntent)
+
+        val builder = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .setActions(listOf(closeAction))
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(autoEnter)
+            builder.setSeamlessResizeEnabled(true)
+        }
+        return builder.build()
+    }
+
+    private fun updateAutoPipParams(autoEnter: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        ) {
+            runCatching {
+                buildPipParams(autoEnter)?.let { setPictureInPictureParams(it) }
+            }
+        }
     }
 
     private fun requestPipMode() {
@@ -137,10 +218,7 @@ class MainActivity : ComponentActivity() {
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
         ) {
             runCatching {
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build()
-                enterPictureInPictureMode(params)
+                buildPipParams(true)?.let { enterPictureInPictureMode(it) }
             }
         }
     }
@@ -174,6 +252,8 @@ private fun MainTvRoot(
     isAr: Boolean,
     isTv: Boolean,
     isInPipMode: Boolean,
+    forceStopSignal: Int,
+    onPlayerActiveChanged: (Boolean) -> Unit,
     onEnterPip: () -> Unit,
     onFinishApp: () -> Unit
 ) {
@@ -192,6 +272,16 @@ private fun MainTvRoot(
 
     val tabRequesters = remember { List(TvTab.entries.size) { FocusRequester() } }
     val contentFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(activePlayback != null) {
+        onPlayerActiveChanged(activePlayback != null)
+    }
+
+    LaunchedEffect(forceStopSignal) {
+        if (forceStopSignal > 0) {
+            activePlayback = null
+        }
+    }
 
     LaunchedEffect(Unit) {
         val existingPortals = dao.getAllPortals()
@@ -252,7 +342,6 @@ private fun MainTvRoot(
                 .blockFocusWhen(showExitConfirmDialog)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // الشريط العلوي: تنقل مكاني حر (2D Spatial) لأقرب عنصر في الأسفل دون القفز لأول زر
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -362,22 +451,25 @@ private fun MainTvRoot(
                     fontWeight = FontWeight.Bold
                 )
 
-                Box(
-                    modifier = Modifier
-                        .tvFocusItem(
-                            shape = RoundedCornerShape(8.dp),
-                            unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
-                            onClick = { showExitConfirmDialog = true }
+                // زر الخروج الأحمر يظهر فقط في نسخة الهاتف (!isTv) حتى لا يعيق الريموت على التلفاز
+                if (!isTv) {
+                    Box(
+                        modifier = Modifier
+                            .tvFocusItem(
+                                shape = RoundedCornerShape(8.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
+                                onClick = { showExitConfirmDialog = true }
+                            )
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
                         )
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    }
                 }
             }
 
