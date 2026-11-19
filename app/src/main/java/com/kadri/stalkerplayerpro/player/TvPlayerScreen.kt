@@ -1123,7 +1123,7 @@ private fun PlayerBottomControlBar(
     onNextChannel: () -> Unit,
     onToggleFavorite: () -> Unit,
     onOpenHistory: () -> Unit,
-    onEnterPip: (() -> Unit)?,
+    onEnterPip: (() -> Unit)? = null,
     onOpenSubtitles: () -> Unit,
     onOpenSubtitleStyle: () -> Unit,
     onOpenSync: () -> Unit,
