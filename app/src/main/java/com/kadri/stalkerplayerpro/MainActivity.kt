@@ -167,14 +167,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStop() {
-        super.onStop()
-        val inPip = isInPipModeState || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode)
-        if (!isChangingConfigurations && !inPip) {
-            forceStopPlaybackSignal++
-            isPlayerActiveForPip = false
-            finishAndRemoveTask()
-        }
+    override fun onStart() {
+        super.onStart()
+        isInPipModeState = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
     }
 
     override fun onDestroy() {
@@ -186,6 +181,10 @@ class MainActivity : ComponentActivity() {
         super.onUserLeaveHint()
         if (isPlayerActiveForPip && !isInPipModeState) {
             requestPipMode()
+        } else if (!isInPipModeState) {
+            forceStopPlaybackSignal++
+            isPlayerActiveForPip = false
+            finishAndRemoveTask()
         }
     }
 
@@ -195,6 +194,11 @@ class MainActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         isInPipModeState = isInPictureInPictureMode
+        if (!isInPictureInPictureMode && lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED) {
+            forceStopPlaybackSignal++
+            isPlayerActiveForPip = false
+            finishAndRemoveTask()
+        }
     }
 
     private fun buildPipParams(autoEnter: Boolean): PictureInPictureParams? {
