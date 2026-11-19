@@ -157,7 +157,7 @@ fun TvPlayerScreen(
         favorites.any { it.itemId == currentRequest.itemId }
     }
 
-    val controller = remember { DualPlayerController(context, settings.preferredAudioLang) }
+    val controller = remember { DualPlayerController(context, settings.preferredAudioLang, settings.preferredSubtitleLang) }
     val rootFocusRequester = remember { FocusRequester() }
     val bottomBarInitialFocusRequester = remember { FocusRequester() }
 
@@ -170,6 +170,7 @@ fun TvPlayerScreen(
     var showSubtitleSyncBar by remember { mutableStateOf(false) }
     var showSubtitleStyleDialog by remember { mutableStateOf(false) }
     var showAudioTracksDialog by remember { mutableStateOf(false) }
+    var showEmbeddedSubtitlesDialog by remember { mutableStateOf(false) }
 
     var surfaceWidthPx by remember { mutableFloatStateOf(1080f) }
     var dragStartX by remember { mutableFloatStateOf(0f) }
@@ -196,7 +197,7 @@ fun TvPlayerScreen(
     var clockText by remember { mutableStateOf(LocaleUtils.formatClock()) }
 
     val anyOverlayModal = showChannelDrawer || showHistoryDrawer || showQuickMenu ||
-            showSubtitleSearchDialog || showSubtitleStyleDialog || showAudioTracksDialog
+            showSubtitleSearchDialog || showSubtitleStyleDialog || showAudioTracksDialog || showEmbeddedSubtitlesDialog
 
     // إيقاف المشغل وتحريره نهائياً عند إغلاق نافذة PiP أو الضغط على زر الهوم (ON_STOP)
     DisposableEffect(componentActivity) {
@@ -872,6 +873,13 @@ fun TvPlayerScreen(
                 )
                 add(
                     TvMenuOption(
+                        id = "embedded_subs",
+                        label = if (isAr) "الترجمة المدمجة مع الفيديو (${controller.embeddedSubtitleTracks.size})" else "Embedded Subtitles (${controller.embeddedSubtitleTracks.size})",
+                        icon = Icons.Default.ClosedCaption
+                    )
+                )
+                add(
+                    TvMenuOption(
                         id = "sub_search",
                         label = if (isAr) "بحث وتحميل ترجمة خارجية" else "Search External Subtitles",
                         icon = Icons.Default.Subtitles
@@ -924,6 +932,7 @@ fun TvPlayerScreen(
                         }
                         "watch_history" -> showHistoryDrawer = true
                         "fav_toggle" -> toggleCurrentFavorite()
+                        "embedded_subs" -> showEmbeddedSubtitlesDialog = true
                         "sub_search" -> showSubtitleSearchDialog = true
                         "sub_style" -> showSubtitleStyleDialog = true
                         "sub_sync" -> showSubtitleSyncBar = true
@@ -950,8 +959,10 @@ fun TvPlayerScreen(
             SubtitleSearchDialog(
                 initialQuery = initialQuery,
                 settings = settings,
+                settingsStore = settingsStore,
                 isAr = isAr,
                 onSubtitleLoaded = { loadedCues ->
+                    controller.selectEmbeddedSubtitleTrack(null)
                     subtitleCues = loadedCues
                     subtitleOffsetMs = 0L
                     showSubtitleSearchDialog = false
@@ -979,6 +990,80 @@ fun TvPlayerScreen(
                 },
                 onDismiss = { showSubtitleStyleDialog = false }
             )
+        }
+
+        if (showEmbeddedSubtitlesDialog) {
+            TvModalDialog(
+                title = if (isAr) "الترجمة المدمجة في الفيديو" else "Embedded Video Subtitles",
+                onDismiss = { showEmbeddedSubtitlesDialog = false },
+                maxWidth = 480.dp
+            ) { firstRequester ->
+                if (controller.embeddedSubtitleTracks.isEmpty()) {
+                    Text(
+                        text = if (isAr) "لا توجد ترجمة مدمجة داخل ملف الفيديو، يمكنك البحث عن ترجمة خارجية." else "No embedded subtitles in this stream. Try External Subtitles search.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    val noneSelected = controller.embeddedSubtitleTracks.none { it.isSelected }
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvFocusItem(
+                                        focusRequester = firstRequester,
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = if (noneSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
+                                        onClick = {
+                                            controller.selectEmbeddedSubtitleTrack(null)
+                                            showEmbeddedSubtitlesDialog = false
+                                        }
+                                    )
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (noneSelected) (if (isAr) "✓ إيقاف الترجمة المدمجة" else "✓ Off (Disabled)") else (if (isAr) "إيقاف الترجمة المدمجة" else "Off (Disabled)"),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                        itemsIndexed(
+                            items = controller.embeddedSubtitleTracks,
+                            key = { idx, sub -> "emb_sub_${sub.id}_$idx" }
+                        ) { _, track ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvFocusItem(
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = if (track.isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
+                                        onClick = {
+                                            subtitleCues = emptyList()
+                                            controller.selectEmbeddedSubtitleTrack(track)
+                                            Toast.makeText(
+                                                context,
+                                                if (isAr) "الترجمة المدمجة: ${track.label}" else "Subtitle: ${track.label}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                            showEmbeddedSubtitlesDialog = false
+                                        }
+                                    )
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (track.isSelected) "✓ ${track.label}" else track.label,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (showAudioTracksDialog) {
@@ -1533,12 +1618,16 @@ private fun LiveSideHistoryDrawer(
 private fun SubtitleSearchDialog(
     initialQuery: String,
     settings: TvUserSettings,
+    settingsStore: SettingsDataStore,
     isAr: Boolean,
     onSubtitleLoaded: (List<SubtitleCue>) -> Unit,
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var searchBoxText by remember { mutableStateOf(initialQuery) }
+    var selectedSubLang by remember {
+        mutableStateOf(settings.preferredSubtitleLang.takeIf { it.isNotBlank() && it != "off" } ?: "ar")
+    }
     var results by remember { mutableStateOf<List<SubtitleSearchResult>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
     var statusMsg by remember { mutableStateOf("") }
@@ -1570,12 +1659,14 @@ private fun SubtitleSearchDialog(
                 apiKey = settings.openSubApiKey,
                 jwtToken = jwt,
                 rawQuery = cleanTitle,
-                year = extractedYear
+                year = extractedYear,
+                languages = selectedSubLang
             )
             val subdlList = if (settings.subtitleEngine == "OPENSUBTITLES") emptyList() else SubtitleRepository.searchSubdl(
                 apiKey = settings.subdlApiKey,
                 rawQuery = cleanTitle,
-                year = extractedYear
+                year = extractedYear,
+                languages = selectedSubLang.uppercase(Locale.US)
             )
 
             results = osList + subdlList
@@ -1633,7 +1724,48 @@ private fun SubtitleSearchDialog(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = if (isAr) "لغة الترجمة:" else "Language:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            val langChoices = listOf(
+                "ar" to (if (isAr) "العربية" else "Arabic"),
+                "en" to "English",
+                "fr" to "Français",
+                "ar,en" to "AR + EN",
+                "ar,en,fr" to (if (isAr) "الكل" else "All")
+            )
+            langChoices.forEach { (code, label) ->
+                val active = selectedSubLang == code
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = {
+                                selectedSubLang = code
+                                scope.launch { settingsStore.updatePreferredSubtitleLang(code) }
+                                executeDualSearch()
+                            }
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
 
         if (isSearching) {
             Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {

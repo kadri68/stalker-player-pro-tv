@@ -20,6 +20,7 @@ data class TvUserSettings(
     val clockCorner: Int = 0,
     val showClock: Boolean = true,
     val preferredAudioLang: String = "ar",
+    val preferredSubtitleLang: String = "ar",
     // إعدادات الترجمة الخارجية ومحرك البحث المفضل ("BOTH", "OPENSUBTITLES", "SUBDL")
     val subtitleEngine: String = "BOTH",
     val openSubApiKey: String = "",
@@ -42,6 +43,7 @@ class SettingsDataStore(private val context: Context) {
         val KEY_CLOCK_CORNER = intPreferencesKey("clock_corner")
         val KEY_SHOW_CLOCK = intPreferencesKey("show_clock")
         val KEY_AUDIO_LANG = stringPreferencesKey("preferred_audio_lang")
+        val KEY_SUBTITLE_LANG = stringPreferencesKey("preferred_subtitle_lang")
 
         val KEY_SUBTITLE_ENGINE = stringPreferencesKey("subtitle_engine")
         val KEY_OS_API_KEY = stringPreferencesKey("os_api_key")
@@ -64,6 +66,7 @@ class SettingsDataStore(private val context: Context) {
             clockCorner = prefs[KEY_CLOCK_CORNER] ?: 0,
             showClock = (prefs[KEY_SHOW_CLOCK] ?: 1) == 1,
             preferredAudioLang = prefs[KEY_AUDIO_LANG] ?: "ar",
+            preferredSubtitleLang = prefs[KEY_SUBTITLE_LANG] ?: "ar",
             subtitleEngine = prefs[KEY_SUBTITLE_ENGINE] ?: "BOTH",
             openSubApiKey = prefs[KEY_OS_API_KEY] ?: "",
             openSubUsername = prefs[KEY_OS_USER] ?: "",
@@ -102,6 +105,10 @@ class SettingsDataStore(private val context: Context) {
 
     suspend fun updatePreferredAudioLang(lang: String) {
         context.dataStore.edit { it[KEY_AUDIO_LANG] = lang }
+    }
+
+    suspend fun updatePreferredSubtitleLang(lang: String) {
+        context.dataStore.edit { it[KEY_SUBTITLE_LANG] = lang }
     }
 
     suspend fun updateSubtitleEngine(engine: String) {

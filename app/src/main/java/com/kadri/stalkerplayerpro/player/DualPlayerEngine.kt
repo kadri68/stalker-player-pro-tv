@@ -42,6 +42,16 @@ enum class ActiveEngineType(val label: String) {
     LIBVLC("LibVLC (All Codecs)")
 }
 
+data class EmbeddedSubtitleTrackInfo(
+    val id: String,
+    val label: String,
+    val language: String,
+    val isSelected: Boolean,
+    val groupIndex: Int = -1,
+    val trackIndex: Int = -1,
+    val vlcSpuId: Int = -1
+)
+
 data class AudioTrackInfo(
     val id: String,
     val label: String,
@@ -55,7 +65,8 @@ data class AudioTrackInfo(
 @OptIn(UnstableApi::class)
 class DualPlayerController(
     private val context: Context,
-    private val preferredAudioLang: String = "ar"
+    private val preferredAudioLang: String = "ar",
+    private val preferredSubtitleLang: String = "ar"
 ) {
     var activeEngine by mutableStateOf(ActiveEngineType.EXOPLAYER)
         private set
@@ -75,6 +86,9 @@ class DualPlayerController(
     var audioTracks by mutableStateOf<List<AudioTrackInfo>>(emptyList())
         private set
 
+    var embeddedSubtitleTracks by mutableStateOf<List<EmbeddedSubtitleTrackInfo>>(emptyList())
+        private set
+
     var engineStatusNotice by mutableStateOf<String?>(null)
         private set
 
@@ -86,6 +100,8 @@ class DualPlayerController(
     private var isManuallyPaused: Boolean = false
     private var lastReconnectAttemptMs: Long = 0L
     private var hasAppliedInitialVlcAudioPref: Boolean = false
+    private var hasAppliedInitialExoTextPref: Boolean = false
+    private var hasAppliedInitialVlcSpuPref: Boolean = false
     private var pendingSeekMs: Long = 0L
     private var autoSwitchedForUrl: Boolean = false
     private var hasRenderedFirstVideoFrame: Boolean = false
@@ -103,6 +119,9 @@ class DualPlayerController(
         isManuallyPaused = false
         isReconnecting = false
         hasAppliedInitialVlcAudioPref = false
+        hasAppliedInitialExoTextPref = false
+        hasAppliedInitialVlcSpuPref = false
+        embeddedSubtitleTracks = emptyList()
         pendingSeekMs = startPositionMs.coerceAtLeast(0L)
         autoSwitchedForUrl = forceVlc
         hasRenderedFirstVideoFrame = false
@@ -198,6 +217,7 @@ class DualPlayerController(
                 isBuffering = (playbackState == Player.STATE_BUFFERING)
                 if (playbackState == Player.STATE_READY) {
                     durationMs = player.duration.coerceAtLeast(0L)
+                    refreshExoTextTracks(player)
                     isReconnecting = false
                     if (engineStatusNotice?.contains("Reconnecting") == true) {
                         engineStatusNotice = null
@@ -368,6 +388,7 @@ class DualPlayerController(
                             pendingSeekMs = 0L
                         }
                         refreshVlcAudioTracks(player)
+                    refreshVlcSpuTracks(player)
                     }
                     MediaPlayer.Event.Paused -> {
                         isPlaying = false
@@ -392,7 +413,7 @@ class DualPlayerController(
 
         attachedVlcLayout?.let { layout ->
             if (!mp.vlcVout.areViewsAttached()) {
-                mp.attachViews(layout, null, false, false)
+                mp.attachViews(layout, null, true, false)
             }
         }
 
@@ -427,6 +448,116 @@ class DualPlayerController(
             if (prefTrack != null && !prefTrack.isSelected) {
                 player.audioTrack = prefTrack.vlcTrackId
                 audioTracks = list.map { it.copy(isSelected = it.id == prefTrack.id) }
+            }
+        }
+    }
+
+    private fun matchesSubLang(rawLang: String, rawLabel: String, pref: String): Boolean {
+        val l = rawLang.lowercase(Locale.US)
+        val n = rawLabel.lowercase(Locale.US)
+        val p = pref.lowercase(Locale.US)
+        if (p.contains("ar") && (l.startsWith("ar") || n.contains("arab") || n.contains("عرب"))) return true
+        if (p.contains("en") && (l.startsWith("en") || n.contains("engl") || n.contains("انجل") || n.contains("إنجل"))) return true
+        if (p.contains("fr") && (l.startsWith("fr") || n.contains("fren") || n.contains("fran") || n.contains("فرنس"))) return true
+        return l.startsWith(p.substringBefore(",").trim())
+    }
+
+    private fun refreshExoTextTracks(player: ExoPlayer) {
+        val list = ArrayList<EmbeddedSubtitleTrackInfo>()
+        player.currentTracks.groups.forEachIndexed { gIdx, group ->
+            if (group.type == C.TRACK_TYPE_TEXT) {
+                for (tIdx in 0 until group.length) {
+                    val fmt = group.getTrackFormat(tIdx)
+                    val lang = fmt.language.orEmpty()
+                    val langName = if (lang.isNotBlank()) Locale.forLanguageTag(lang).displayLanguage.takeIf { it.isNotBlank() && it != lang } ?: lang.uppercase(Locale.US) else ""
+                    val rawLabel = fmt.label?.takeIf { it.isNotBlank() } ?: langName.ifBlank { "Subtitle ${list.size + 1}" }
+                    val fullLabel = if (langName.isNotBlank() && !rawLabel.contains(langName, ignoreCase = true)) "$rawLabel ($langName)" else rawLabel
+                    list.add(
+                        EmbeddedSubtitleTrackInfo(
+                            id = "exo_sub_${gIdx}_${tIdx}",
+                            label = fullLabel,
+                            language = lang,
+                            isSelected = group.isTrackSelected(tIdx),
+                            groupIndex = gIdx,
+                            trackIndex = tIdx
+                        )
+                    )
+                }
+            }
+        }
+        embeddedSubtitleTracks = list
+        if (!hasAppliedInitialExoTextPref && list.isNotEmpty()) {
+            hasAppliedInitialExoTextPref = true
+            if (preferredSubtitleLang.equals("off", ignoreCase = true)) {
+                selectEmbeddedSubtitleTrack(null)
+            } else {
+                val target = list.find { matchesSubLang(it.language, it.label, preferredSubtitleLang) }
+                    ?: list.find { it.isSelected }
+                    ?: list.first()
+                selectEmbeddedSubtitleTrack(target)
+            }
+        }
+    }
+
+    private fun refreshVlcSpuTracks(player: MediaPlayer) {
+        val currentId = player.spuTrack
+        val tracks = player.spuTracks ?: return
+        val list = tracks.filter { it.id >= 0 }.map { td ->
+            EmbeddedSubtitleTrackInfo(
+                id = "vlc_sub_${td.id}",
+                label = td.name ?: "Subtitle ${td.id}",
+                language = td.name ?: "",
+                isSelected = (td.id == currentId),
+                vlcSpuId = td.id
+            )
+        }
+        embeddedSubtitleTracks = list
+        if (!hasAppliedInitialVlcSpuPref && list.isNotEmpty()) {
+            hasAppliedInitialVlcSpuPref = true
+            if (preferredSubtitleLang.equals("off", ignoreCase = true)) {
+                player.spuTrack = -1
+                embeddedSubtitleTracks = list.map { it.copy(isSelected = false) }
+            } else {
+                val target = list.find { matchesSubLang(it.language, it.label, preferredSubtitleLang) }
+                    ?: list.find { it.isSelected }
+                    ?: list.first()
+                player.spuTrack = target.vlcSpuId
+                embeddedSubtitleTracks = list.map { it.copy(isSelected = it.id == target.id) }
+            }
+        }
+    }
+
+    fun selectEmbeddedSubtitleTrack(track: EmbeddedSubtitleTrackInfo?) {
+        if (activeEngine == ActiveEngineType.EXOPLAYER) {
+            val exo = exoPlayer ?: return
+            if (track == null) {
+                exo.trackSelectionParameters = exo.trackSelectionParameters
+                    .buildUpon()
+                    .setPreferredTextLanguage(null)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build()
+                embeddedSubtitleTracks = embeddedSubtitleTracks.map { it.copy(isSelected = false) }
+            } else {
+                val group = exo.currentTracks.groups.getOrNull(track.groupIndex) ?: return
+                exo.trackSelectionParameters = exo.trackSelectionParameters
+                    .buildUpon()
+                    .setPreferredTextLanguage(null)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .addOverride(TrackSelectionOverride(group.mediaTrackGroup, track.trackIndex))
+                    .build()
+                embeddedSubtitleTracks = embeddedSubtitleTracks.map { it.copy(isSelected = it.id == track.id) }
+            }
+        } else {
+            val mp = vlcPlayer ?: return
+            hasAppliedInitialVlcSpuPref = true
+            if (track == null) {
+                mp.spuTrack = -1
+                embeddedSubtitleTracks = embeddedSubtitleTracks.map { it.copy(isSelected = false) }
+            } else if (track.vlcSpuId >= 0) {
+                mp.spuTrack = track.vlcSpuId
+                embeddedSubtitleTracks = embeddedSubtitleTracks.map { it.copy(isSelected = it.id == track.id) }
             }
         }
     }
@@ -556,7 +687,7 @@ class DualPlayerController(
         attachedVlcLayout = layout
         vlcPlayer?.let { mp ->
             if (!mp.vlcVout.areViewsAttached()) {
-                mp.attachViews(layout, null, false, false)
+                mp.attachViews(layout, null, true, false)
             }
         }
     }
@@ -613,6 +744,9 @@ fun DualVideoSurface(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     useController = false
+                    subtitleView?.visibility = android.view.View.VISIBLE
+                    subtitleView?.setApplyEmbeddedStyles(true)
+                    subtitleView?.setApplyEmbeddedFontSizes(true)
                     isClickable = false
                     isFocusable = false
                     setOnTouchListener { _, _ -> false }
