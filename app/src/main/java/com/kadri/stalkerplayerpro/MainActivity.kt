@@ -58,6 +58,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -260,7 +266,7 @@ private fun MainTvRoot(
 ) {
     val dao = app.database.appDao()
     val activePortal by dao.observeActivePortal().collectAsState(initial = null)
-    var selectedTab by remember { mutableIntStateOf(TvTab.PORTALS.index) }
+    var selectedTab by remember { mutableIntStateOf(TvTab.LIVE.index) }
     var focusedTabIndex by remember { mutableIntStateOf(-1) }
     var activePlayback by remember { mutableStateOf<PlaybackRequest?>(null) }
     var headerClock by remember { mutableStateOf(LocaleUtils.formatClock()) }
@@ -272,7 +278,16 @@ private fun MainTvRoot(
     var lastFocusedSeriesId by remember { mutableStateOf<String?>(null) }
 
     val tabRequesters = remember { List(TvTab.entries.size) { FocusRequester() } }
+    val topBarScrollState = rememberScrollState()
     val contentFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(focusedTabIndex) {
+        if (focusedTabIndex >= 0) {
+            val maxIdx = (TvTab.entries.size - 1).coerceAtLeast(1)
+            val targetScroll = if (focusedTabIndex == 0) 0 else (topBarScrollState.maxValue * focusedTabIndex) / maxIdx
+            runCatching { topBarScrollState.animateScrollTo(targetScroll) }
+        }
+    }
 
     LaunchedEffect(activePlayback != null) {
         onPlayerActiveChanged(activePlayback != null)
@@ -304,8 +319,9 @@ private fun MainTvRoot(
             dao.setActivePortal(freePortal.id)
         }
 
-        delay(100)
-        runCatching { tabRequesters[selectedTab].requestFocus() }
+        selectedTab = TvTab.LIVE.index
+        delay(120)
+        runCatching { tabRequesters[TvTab.LIVE.index].requestFocus() }
         while (true) {
             delay(15_000)
             headerClock = LocaleUtils.formatClock()
@@ -347,7 +363,7 @@ private fun MainTvRoot(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
-                    .horizontalScroll(rememberScrollState())
+                    .horizontalScroll(topBarScrollState)
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -475,7 +491,17 @@ private fun MainTvRoot(
                 }
             }
 
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .onKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
+                                if (runCatching { tabRequesters[selectedTab].requestFocus() }.isSuccess) {
+                                    return@onKeyEvent true
+                                }
+                            }
+                            false
+                        }.fillMaxWidth()) {
                 when (selectedTab) {
                     TvTab.LIVE.index -> LiveTvScreen(
                         portal = activePortal,
