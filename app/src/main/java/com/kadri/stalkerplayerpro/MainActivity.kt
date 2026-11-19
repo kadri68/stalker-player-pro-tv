@@ -229,7 +229,7 @@ fun isTvDevice(context: Context): Boolean {
     val isTvMode = uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
     val hasLeanback = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
     val hasTouch = context.packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
-    return isTvMode || (hasLeanback && !hasTouch)
+    return isTvMode || hasLeanback
 }
 
 private enum class TvTab(

@@ -206,7 +206,7 @@ fun TvPlayerScreen(
                         (componentActivity?.isInPictureInPictureMode == true)
                 if (!stillInPip) {
                     controller.releaseAll()
-                    onExitPlayer(); activity?.finishAndRemoveTask()
+                    onExitPlayer()
                 }
             }
         }
@@ -416,7 +416,7 @@ fun TvPlayerScreen(
             showControls -> showControls = false
             else -> {
                 controller.releaseAll()
-                onExitPlayer(); activity?.finishAndRemoveTask()
+                onExitPlayer()
             }
         }
     }
@@ -743,7 +743,7 @@ fun TvPlayerScreen(
                 onUserInteract = { controlInteractTick++ },
                 onBackClick = {
                     controller.releaseAll()
-                    onExitPlayer(); activity?.finishAndRemoveTask()
+                    onExitPlayer()
                 },
                 onPrevChannel = {
                     controlInteractTick++
