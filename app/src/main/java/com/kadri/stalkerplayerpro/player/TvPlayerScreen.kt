@@ -118,6 +118,7 @@ import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
 import com.kadri.stalkerplayerpro.ui.screens.resolvePlayableUrl
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.roundToInt
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
