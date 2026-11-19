@@ -164,9 +164,12 @@ class DualPlayerController(
 
         val renderersFactory = DefaultRenderersFactory(context)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+            .setEnableDecoderFallback(true)
 
+        // تخفيض زمن بدء التشغيل الأولي إلى 650ms لفتح القنوات والأفلام فوراً
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(12_000, 45_000, 2_000, 4_000)
+            .setBufferDurationsMs(6_000, 35_000, 650, 1_500)
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         val player = ExoPlayer.Builder(context, renderersFactory)
@@ -316,10 +319,11 @@ class DualPlayerController(
                 "--no-skip-frames",
                 "--rtsp-tcp",
                 "--http-reconnect",
-                "--network-caching=2000",
-                "--live-caching=2000",
-                "--file-caching=2000",
-                "--avcodec-hw=any"
+                "--network-caching=1200",
+                "--live-caching=1200",
+                "--file-caching=1200",
+                "--avcodec-hw=any",
+                "--codec=all"
             )
         ).also { libVlc = it }
 
@@ -360,7 +364,7 @@ class DualPlayerController(
         pendingSeekMs = seekMs
         val media = Media(vlc, Uri.parse(url)).apply {
             setHWDecoderEnabled(true, false)
-            addOption(":network-caching=2000")
+            addOption(":network-caching=1200")
             addOption(":http-reconnect")
             addOption(":demux=any")
         }
@@ -447,7 +451,7 @@ class DualPlayerController(
                 if (!autoSwitchedForUrl && exo.isPlaying && !hasRenderedFirstVideoFrame && currentUrl.isNotBlank()) {
                     if (exoPlayingWithoutVideoStartMs == 0L) {
                         exoPlayingWithoutVideoStartMs = System.currentTimeMillis()
-                    } else if (System.currentTimeMillis() - exoPlayingWithoutVideoStartMs >= 3500L) {
+                    } else if (System.currentTimeMillis() - exoPlayingWithoutVideoStartMs >= 3000L) {
                         autoSwitchedForUrl = true
                         engineStatusNotice = "Video Codec -> LibVLC"
                         startLibVlc(currentUrl, pos)
@@ -490,20 +494,28 @@ class DualPlayerController(
     }
 
     private fun releaseExoOnly() {
-        exoPlayer?.release()
+        runCatching {
+            exoPlayer?.stop()
+            exoPlayer?.release()
+        }
         exoPlayer = null
     }
 
     private fun releaseVlcOnly() {
-        detachVlcLayout()
-        vlcPlayer?.stop()
-        vlcPlayer?.release()
+        runCatching {
+            detachVlcLayout()
+            vlcPlayer?.stop()
+            vlcPlayer?.release()
+            libVlc?.release()
+        }
         vlcPlayer = null
-        libVlc?.release()
         libVlc = null
     }
 
     fun releaseAll() {
+        currentUrl = ""
+        isPlaying = false
+        isBuffering = false
         releaseExoOnly()
         releaseVlcOnly()
     }

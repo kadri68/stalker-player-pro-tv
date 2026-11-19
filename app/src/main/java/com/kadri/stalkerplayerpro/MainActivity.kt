@@ -1,11 +1,14 @@
 package com.kadri.stalkerplayerpro
 
+import android.app.PictureInPictureParams
 import android.app.UiModeManager
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -49,15 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +83,8 @@ import com.kadri.stalkerplayerpro.ui.screens.VodScreen
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
+
+    private var isInPipModeState by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -116,9 +115,32 @@ class MainActivity : ComponentActivity() {
                         settings = settings,
                         isAr = isAr,
                         isTv = isTv,
-                        onFinishApp = { finish() }
+                        isInPipMode = isInPipModeState,
+                        onEnterPip = { requestPipMode() },
+                        onFinishApp = { finishAndRemoveTask() }
                     )
                 }
+            }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPipModeState = isInPictureInPictureMode
+    }
+
+    private fun requestPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        ) {
+            runCatching {
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+                enterPictureInPictureMode(params)
             }
         }
     }
@@ -151,6 +173,8 @@ private fun MainTvRoot(
     settings: TvUserSettings,
     isAr: Boolean,
     isTv: Boolean,
+    isInPipMode: Boolean,
+    onEnterPip: () -> Unit,
     onFinishApp: () -> Unit
 ) {
     val dao = app.database.appDao()
@@ -205,13 +229,20 @@ private fun MainTvRoot(
             settings = settings,
             settingsStore = app.settingsStore,
             isAr = isAr,
+            isInPipMode = isInPipMode,
+            onEnterPip = onEnterPip,
             onExitPlayer = { activePlayback = null }
         )
         return
     }
 
     BackHandler(enabled = !showExitConfirmDialog) {
-        showExitConfirmDialog = true
+        if (selectedTab != TvTab.PORTALS.index) {
+            selectedTab = TvTab.PORTALS.index
+            runCatching { tabRequesters[TvTab.PORTALS.index].requestFocus() }
+        } else {
+            showExitConfirmDialog = true
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -221,20 +252,12 @@ private fun MainTvRoot(
                 .blockFocusWhen(showExitConfirmDialog)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // الشريط العلوي بإطار تمرير ملون (Visor) يتنقل بين التبويبات يميناً ويساراً دون الحاجة لزر OK
+            // الشريط العلوي: تنقل مكاني حر (2D Spatial) لأقرب عنصر في الأسفل دون القفز لأول زر
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
                     .horizontalScroll(rememberScrollState())
-                    .onPreviewKeyEvent { ev ->
-                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown) {
-                            focusedTabIndex = -1
-                            val moved = runCatching { contentFocusRequester.requestFocus() }.isSuccess
-                            if (moved) return@onPreviewKeyEvent true
-                        }
-                        false
-                    }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -292,7 +315,6 @@ private fun MainTvRoot(
                                     focusedTabIndex = -1
                                 }
                             }
-                            .focusProperties { down = contentFocusRequester }
                             .tvFocusItem(
                                 focusRequester = tabRequesters[idx],
                                 shape = RoundedCornerShape(8.dp),
@@ -342,7 +364,6 @@ private fun MainTvRoot(
 
                 Box(
                     modifier = Modifier
-                        .focusProperties { down = contentFocusRequester }
                         .tvFocusItem(
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),

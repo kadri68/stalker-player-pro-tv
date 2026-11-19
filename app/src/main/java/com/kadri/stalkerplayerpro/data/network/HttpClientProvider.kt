@@ -1,5 +1,6 @@
 package com.kadri.stalkerplayerpro.data.network
 
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
@@ -11,9 +12,11 @@ import javax.net.ssl.X509TrustManager
 object HttpClientProvider {
     val client: OkHttpClient by lazy {
         val builder = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(35, TimeUnit.SECONDS)
+            .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
+            .connectTimeout(7, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
 

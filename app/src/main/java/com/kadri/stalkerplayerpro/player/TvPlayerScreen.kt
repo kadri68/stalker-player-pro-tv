@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.media.AudioManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,8 +42,10 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Search
@@ -90,6 +94,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.kadri.stalkerplayerpro.core.theme.LocalTvExtraColors
 import com.kadri.stalkerplayerpro.core.tv.LocaleUtils
 import com.kadri.stalkerplayerpro.core.tv.LtrText
@@ -127,10 +133,13 @@ fun TvPlayerScreen(
     settings: TvUserSettings,
     settingsStore: SettingsDataStore,
     isAr: Boolean,
+    isInPipMode: Boolean = false,
+    onEnterPip: (() -> Unit)? = null,
     onExitPlayer: () -> Unit
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
+    val componentActivity = activity as? ComponentActivity
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val scope = rememberCoroutineScope()
 
@@ -141,6 +150,9 @@ fun TvPlayerScreen(
 
     val favorites by dao.observeFavorites(currentRequest.portal.id, currentRequest.contentType)
         .collectAsState(initial = emptyList())
+    val watchHistory by dao.observeWatchHistory(currentRequest.portal.id)
+        .collectAsState(initial = emptyList())
+
     val isCurrentFavorite = remember(favorites, currentRequest.itemId) {
         favorites.any { it.itemId == currentRequest.itemId }
     }
@@ -152,13 +164,13 @@ fun TvPlayerScreen(
     var showControls by remember { mutableStateOf(true) }
     var controlInteractTick by remember { mutableIntStateOf(0) }
     var showChannelDrawer by remember { mutableStateOf(false) }
+    var showHistoryDrawer by remember { mutableStateOf(false) }
     var showQuickMenu by remember { mutableStateOf(false) }
     var showSubtitleSearchDialog by remember { mutableStateOf(false) }
     var showSubtitleSyncBar by remember { mutableStateOf(false) }
     var showSubtitleStyleDialog by remember { mutableStateOf(false) }
     var showAudioTracksDialog by remember { mutableStateOf(false) }
 
-    // حالات السحب باللمس للتحكم بالصوت والسطوع
     var surfaceWidthPx by remember { mutableFloatStateOf(1080f) }
     var dragStartX by remember { mutableFloatStateOf(0f) }
     var volumeFraction by remember {
@@ -170,7 +182,7 @@ fun TvPlayerScreen(
         val initialB = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
         mutableFloatStateOf(initialB)
     }
-    var activeGestureHud by remember { mutableStateOf<Pair<Boolean, Int>?>(null) } // true=Volume, false=Brightness
+    var activeGestureHud by remember { mutableStateOf<Pair<Boolean, Int>?>(null) }
     var gestureHudTick by remember { mutableIntStateOf(0) }
 
     var digitBuffer by remember { mutableStateOf("") }
@@ -183,8 +195,26 @@ fun TvPlayerScreen(
 
     var clockText by remember { mutableStateOf(LocaleUtils.formatClock()) }
 
-    val anyOverlayModal = showChannelDrawer || showQuickMenu || showSubtitleSearchDialog ||
-            showSubtitleStyleDialog || showAudioTracksDialog
+    val anyOverlayModal = showChannelDrawer || showHistoryDrawer || showQuickMenu ||
+            showSubtitleSearchDialog || showSubtitleStyleDialog || showAudioTracksDialog
+
+    // إيقاف المشغل وتحريره نهائياً عند إغلاق نافذة PiP أو الضغط على زر الهوم (ON_STOP)
+    DisposableEffect(componentActivity) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                val stillInPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+                        (componentActivity?.isInPictureInPictureMode == true)
+                if (!stillInPip) {
+                    controller.releaseAll()
+                    onExitPlayer()
+                }
+            }
+        }
+        componentActivity?.lifecycle?.addObserver(observer)
+        onDispose {
+            componentActivity?.lifecycle?.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(gestureHudTick) {
         if (activeGestureHud != null) {
@@ -202,6 +232,22 @@ fun TvPlayerScreen(
         val resolvedType = if (currentRequest.contentType == "LIVE") "itv" else "vod"
         val playableUrl = resolvePlayableUrl(currentRequest.portal, currentRequest.streamCmdOrUrl, resolvedType)
         controller.playStream(playableUrl, currentRequest.resumePositionMs)
+
+        // تسجيل القناة أو الفيلم في سجل المشاهدة للوصول السريع
+        dao.upsertWatchHistory(
+            WatchHistoryEntity(
+                portalId = currentRequest.portal.id,
+                contentType = currentRequest.contentType,
+                itemId = currentRequest.itemId,
+                seriesId = currentRequest.seriesId,
+                title = currentRequest.title,
+                posterUrl = currentRequest.posterOrLogo,
+                streamCmdOrUrl = currentRequest.streamCmdOrUrl,
+                containerExtension = currentRequest.containerExtension,
+                positionMs = currentRequest.resumePositionMs,
+                durationMs = controller.durationMs
+            )
+        )
 
         if (currentRequest.contentType == "LIVE") {
             val epgList = when (currentRequest.portal.protocol) {
@@ -251,8 +297,8 @@ fun TvPlayerScreen(
         }
     }
 
-    LaunchedEffect(showControls, anyOverlayModal) {
-        if (!anyOverlayModal) {
+    LaunchedEffect(showControls, anyOverlayModal, isInPipMode) {
+        if (!anyOverlayModal && !isInPipMode) {
             delay(70)
             if (showControls) {
                 runCatching { bottomBarInitialFocusRequester.requestFocus() }
@@ -368,7 +414,10 @@ fun TvPlayerScreen(
         when {
             showSubtitleSyncBar -> showSubtitleSyncBar = false
             showControls -> showControls = false
-            else -> onExitPlayer()
+            else -> {
+                controller.releaseAll()
+                onExitPlayer()
+            }
         }
     }
 
@@ -382,7 +431,7 @@ fun TvPlayerScreen(
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
-                if (anyOverlayModal) return@onPreviewKeyEvent false
+                if (anyOverlayModal || isInPipMode) return@onPreviewKeyEvent false
 
                 if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount == 0) {
                     val digit = extractDigitChar(event.key)
@@ -423,7 +472,11 @@ fun TvPlayerScreen(
                             }
                         }
                         Key.DirectionRight -> {
-                            if (!isLive && !showControls) {
+                            // الزر المقابل لقائمة القنوات يفتح سجل المشاهدة للوصول السريع
+                            if (isLive && !showControls) {
+                                showHistoryDrawer = true
+                                return@onPreviewKeyEvent true
+                            } else if (!isLive && !showControls) {
                                 controller.seekBy(10_000L)
                                 showControls = true
                                 controlInteractTick++
@@ -456,6 +509,11 @@ fun TvPlayerScreen(
             controller = controller,
             modifier = Modifier.fillMaxSize()
         )
+
+        // إخفاء كافة أزرار التحكم والقوائم أثناء وضع PiP المصغر
+        if (isInPipMode) {
+            return@Box
+        }
 
         // 2. طبقة اللمس والسحب على جانبي الشاشة (الصوت يميناً والسطوع يساراً)
         Box(
@@ -673,7 +731,7 @@ fun TvPlayerScreen(
             )
         }
 
-        // 11. شريط التحكم السفلي المتكامل (الريموت واللمس)
+        // 11. شريط التحكم السفلي المتكامل
         if (showControls && !anyOverlayModal) {
             PlayerBottomControlBar(
                 request = currentRequest,
@@ -683,7 +741,10 @@ fun TvPlayerScreen(
                 isAr = isAr,
                 initialFocusRequester = bottomBarInitialFocusRequester,
                 onUserInteract = { controlInteractTick++ },
-                onBackClick = onExitPlayer,
+                onBackClick = {
+                    controller.releaseAll()
+                    onExitPlayer()
+                },
                 onPrevChannel = {
                     controlInteractTick++
                     switchToChannelAtIndex(currentChannelIdx - 1)
@@ -696,6 +757,16 @@ fun TvPlayerScreen(
                     controlInteractTick++
                     toggleCurrentFavorite()
                 },
+                onOpenHistory = {
+                    controlInteractTick++
+                    showHistoryDrawer = true
+                },
+                onEnterPip = if (onEnterPip != null) {
+                    {
+                        showControls = false
+                        onEnterPip()
+                    }
+                } else null,
                 onOpenSubtitles = {
                     controlInteractTick++
                     showSubtitleSearchDialog = true
@@ -720,7 +791,7 @@ fun TvPlayerScreen(
             )
         }
 
-        // 12. القائمة الجانبية للقنوات
+        // 12. القائمة الجانبية للقنوات (زر اليسار)
         if (showChannelDrawer && currentRequest.channelList.isNotEmpty()) {
             LiveSideChannelDrawer(
                 channels = currentRequest.channelList,
@@ -734,54 +805,124 @@ fun TvPlayerScreen(
             )
         }
 
-        // 13. قائمة خيارات المشغل السريعة
-        if (showQuickMenu) {
-            val menuOptions = listOf(
-                TvMenuOption(
-                    id = "fav_toggle",
-                    label = if (isCurrentFavorite) {
-                        if (isAr) "إزالة من المفضلة ★" else "Remove from Favorites ★"
-                    } else {
-                        if (isAr) "إضافة إلى المفضلة ☆" else "Add to Favorites ☆"
+        // 13. القائمة الجانبية لسجل المشاهدة (الزر المقابل لقائمة القنوات)
+        if (showHistoryDrawer) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                LiveSideHistoryDrawer(
+                    history = watchHistory,
+                    isAr = isAr,
+                    onSelectEntry = { entry ->
+                        showHistoryDrawer = false
+                        val chIdx = currentRequest.channelList.indexOfFirst { it.id == entry.itemId }
+                        if (entry.contentType == "LIVE" && chIdx >= 0) {
+                            switchToChannelAtIndex(chIdx)
+                        } else {
+                            currentRequest = currentRequest.copy(
+                                contentType = entry.contentType,
+                                itemId = entry.itemId,
+                                seriesId = entry.seriesId,
+                                title = entry.title,
+                                subtitleQueryHint = entry.title,
+                                posterOrLogo = entry.posterUrl,
+                                streamCmdOrUrl = entry.streamCmdOrUrl,
+                                containerExtension = entry.containerExtension,
+                                resumePositionMs = entry.positionMs
+                            )
+                        }
                     },
-                    icon = if (isCurrentFavorite) Icons.Default.Star else Icons.Default.StarOutline
-                ),
-                TvMenuOption(
-                    id = "sub_search",
-                    label = if (isAr) "بحث وتحميل ترجمة خارجية" else "Search External Subtitles",
-                    icon = Icons.Default.Subtitles
-                ),
-                TvMenuOption(
-                    id = "sub_style",
-                    label = if (isAr) "لون وحجم خط الترجمة" else "Subtitle Color & Font Size",
-                    icon = Icons.Default.Palette
-                ),
-                TvMenuOption(
-                    id = "sub_sync",
-                    label = if (isAr) "تزامن الترجمة (${LocaleUtils.formatOffsetSeconds(subtitleOffsetMs)})" else "Subtitle Sync (${LocaleUtils.formatOffsetSeconds(subtitleOffsetMs)})",
-                    icon = Icons.Default.Tune
-                ),
-                TvMenuOption(
-                    id = "audio_track",
-                    label = if (isAr) "اختيار مسار الصوت / المعلق" else "Audio Tracks / Commentary",
-                    icon = Icons.Default.Audiotrack
-                ),
-                TvMenuOption(
-                    id = "switch_engine",
-                    label = if (isAr) "تبديل المحرك (الحالي: ${controller.activeEngine.label})" else "Switch Engine (${controller.activeEngine.label})",
-                    icon = Icons.Default.SettingsEthernet
-                ),
-                TvMenuOption(
-                    id = "clock_corner",
-                    label = if (isAr) "تغيير زاوية الساعة الرقمية" else "Change Clock Corner",
-                    icon = Icons.Default.AccessTime
+                    onDismiss = { showHistoryDrawer = false }
                 )
-            )
+            }
+        }
+
+        // 14. قائمة خيارات المشغل السريعة
+        if (showQuickMenu) {
+            val menuOptions = buildList {
+                if (onEnterPip != null) {
+                    add(
+                        TvMenuOption(
+                            id = "pip_mode",
+                            label = if (isAr) "نافذة داخل نافذة (PiP)" else "Picture-in-Picture (PiP)",
+                            icon = Icons.Default.PictureInPictureAlt
+                        )
+                    )
+                }
+                add(
+                    TvMenuOption(
+                        id = "watch_history",
+                        label = if (isAr) "سجل المشاهدة السريع" else "Recent Watch History",
+                        icon = Icons.Default.History
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "fav_toggle",
+                        label = if (isCurrentFavorite) {
+                            if (isAr) "إزالة من المفضلة ★" else "Remove from Favorites ★"
+                        } else {
+                            if (isAr) "إضافة إلى المفضلة ☆" else "Add to Favorites ☆"
+                        },
+                        icon = if (isCurrentFavorite) Icons.Default.Star else Icons.Default.StarOutline
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "sub_search",
+                        label = if (isAr) "بحث وتحميل ترجمة خارجية" else "Search External Subtitles",
+                        icon = Icons.Default.Subtitles
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "sub_style",
+                        label = if (isAr) "لون وحجم خط الترجمة" else "Subtitle Color & Font Size",
+                        icon = Icons.Default.Palette
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "sub_sync",
+                        label = if (isAr) "تزامن الترجمة (${LocaleUtils.formatOffsetSeconds(subtitleOffsetMs)})" else "Subtitle Sync (${LocaleUtils.formatOffsetSeconds(subtitleOffsetMs)})",
+                        icon = Icons.Default.Tune
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "audio_track",
+                        label = if (isAr) "اختيار مسار الصوت / المعلق" else "Audio Tracks / Commentary",
+                        icon = Icons.Default.Audiotrack
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "switch_engine",
+                        label = if (isAr) "تبديل المحرك (الحالي: ${controller.activeEngine.label})" else "Switch Engine (${controller.activeEngine.label})",
+                        icon = Icons.Default.SettingsEthernet
+                    )
+                )
+                add(
+                    TvMenuOption(
+                        id = "clock_corner",
+                        label = if (isAr) "تغيير زاوية الساعة الرقمية" else "Change Clock Corner",
+                        icon = Icons.Default.AccessTime
+                    )
+                )
+            }
             TvActionMenuDialog(
                 title = if (isAr) "خيارات المشغل" else "Player Options",
                 options = menuOptions,
                 onSelect = { opt ->
                     when (opt.id) {
+                        "pip_mode" -> {
+                            showControls = false
+                            onEnterPip?.invoke()
+                        }
+                        "watch_history" -> showHistoryDrawer = true
                         "fav_toggle" -> toggleCurrentFavorite()
                         "sub_search" -> showSubtitleSearchDialog = true
                         "sub_style" -> showSubtitleStyleDialog = true
@@ -798,7 +939,6 @@ fun TvPlayerScreen(
             )
         }
 
-        // 14. نافذة البحث عن الترجمة الخارجية
         if (showSubtitleSearchDialog) {
             val initialQuery = remember(currentRequest, currentEpgTitle) {
                 if (currentRequest.contentType == "LIVE") {
@@ -825,7 +965,6 @@ fun TvPlayerScreen(
             )
         }
 
-        // 15. نافذة تخصيص لون وحجم خط الترجمة
         if (showSubtitleStyleDialog) {
             SubtitleAppearanceDialog(
                 currentColor = subColor,
@@ -842,7 +981,6 @@ fun TvPlayerScreen(
             )
         }
 
-        // 16. نافذة اختيار مسار الصوت المناسب
         if (showAudioTracksDialog) {
             TvModalDialog(
                 title = if (isAr) "مسارات الصوت المتاحة" else "Available Audio Tracks",
@@ -907,6 +1045,8 @@ private fun PlayerBottomControlBar(
     onPrevChannel: () -> Unit,
     onNextChannel: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onEnterPip: (() -> Unit)?,
     onOpenSubtitles: () -> Unit,
     onOpenSubtitleStyle: () -> Unit,
     onOpenSync: () -> Unit,
@@ -956,7 +1096,6 @@ private fun PlayerBottomControlBar(
             )
         }
 
-        // شريط التمرير التفاعلي للأفلام والمسلسلات (يدعم السحب باللمس والوقت المنقضي والمتبقي)
         if (!isLive && controller.durationMs > 0L) {
             val activePos = if (isDraggingSlider) sliderDragMs else controller.currentPositionMs
             val progress = (activePos.toFloat() / controller.durationMs.toFloat()).coerceIn(0f, 1f)
@@ -1004,7 +1143,6 @@ private fun PlayerBottomControlBar(
             Spacer(modifier = Modifier.height(6.dp))
         }
 
-        // شريط الأزرار السفلي الموحد للتلفاز والهاتف
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1068,7 +1206,6 @@ private fun PlayerBottomControlBar(
                 )
             }
 
-            // زر المفضلة التفاعلي ★
             PlayerControlChip(
                 icon = if (isFavorite) Icons.Default.Star else Icons.Default.StarOutline,
                 label = if (isAr) "المفضلة" else "Fav",
@@ -1077,6 +1214,22 @@ private fun PlayerBottomControlBar(
                 onFocused = onUserInteract,
                 onClick = onToggleFavorite
             )
+
+            PlayerControlChip(
+                icon = Icons.Default.History,
+                label = if (isAr) "السجل" else "History",
+                onFocused = onUserInteract,
+                onClick = onOpenHistory
+            )
+
+            if (onEnterPip != null) {
+                PlayerControlChip(
+                    icon = Icons.Default.PictureInPictureAlt,
+                    label = "PiP",
+                    onFocused = onUserInteract,
+                    onClick = onEnterPip
+                )
+            }
 
             if (isLive) {
                 PlayerControlChip(
@@ -1090,7 +1243,6 @@ private fun PlayerBottomControlBar(
                 )
             }
 
-            // زر الصوت لاختيار المعلق أو اللغة المناسبة
             PlayerControlChip(
                 icon = Icons.Default.Audiotrack,
                 label = if (isAr) "الصوت" else "Audio",
@@ -1105,7 +1257,6 @@ private fun PlayerBottomControlBar(
                 onClick = onOpenSubtitles
             )
 
-            // زر مظهر الترجمة لتخصيص حجم الخط واللون مباشرة
             PlayerControlChip(
                 icon = Icons.Default.Palette,
                 label = if (isAr) "خط/لون" else "Style",
@@ -1296,6 +1447,79 @@ private fun LiveSideChannelDrawer(
                                 color = Color.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveSideHistoryDrawer(
+    history: List<WatchHistoryEntity>,
+    isAr: Boolean,
+    onSelectEntry: (WatchHistoryEntity) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val extraColors = LocalTvExtraColors.current
+    TvFocusTrap(
+        onDismiss = onDismiss,
+        modifier = Modifier
+            .width(340.dp)
+            .fillMaxHeight()
+            .background(extraColors.panelOverlay)
+            .padding(14.dp)
+    ) { firstRequester ->
+        Column(modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = if (isAr) "سجل المشاهدة السريع" else "Watch History",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (history.isEmpty()) {
+                Text(
+                    text = if (isAr) "لا توجد قنوات أو أفلام مشاهدة مؤخراً" else "No recent watch history",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.7f)
+                )
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    itemsIndexed(
+                        items = history,
+                        key = { idx, entry -> "player_hist_${entry.id}_${entry.itemId}_$idx" }
+                    ) { index, entry ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvFocusItem(
+                                    focusRequester = if (index == 0) firstRequester else null,
+                                    shape = RoundedCornerShape(8.dp),
+                                    unfocusedBackgroundColor = Color.White.copy(alpha = 0.08f),
+                                    onClick = { onSelectEntry(entry) }
+                                )
+                                .padding(horizontal = 10.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            LtrText(
+                                text = if (entry.contentType == "LIVE") "[LIVE]" else "[VOD]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.width(48.dp)
+                            )
+                            Text(
+                                text = entry.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }

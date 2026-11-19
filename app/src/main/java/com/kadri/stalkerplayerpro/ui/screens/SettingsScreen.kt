@@ -238,7 +238,7 @@ fun SettingsScreen(
                                     ).show()
                                 }
                                 runCatching {
-                                    exportBackupLauncher.launch("stalker_player_pro_backup.json")
+                                    if (!isTv) { exportBackupLauncher.launch("stalker_player_pro_backup.json") }
                                 }
                             }
                         }
@@ -281,7 +281,7 @@ fun SettingsScreen(
                     ClassicSettingsRow(
                         icon = Icons.Default.Info,
                         title = if (isAr) "حول التطبيق ومعلومات المطور" else "About App & Developer",
-                        valueText = "v1.6.0",
+                        valueText = "v1.7.0",
                         isAr = isAr,
                         onClick = { showAboutDialog = true }
                     )

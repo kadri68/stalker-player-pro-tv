@@ -98,22 +98,33 @@ fun TvModalDialog(
                     Spacer(modifier = Modifier.width(10.dp))
                     Box(
                         modifier = Modifier
-                            .focusProperties { down = firstRequester }
+                            .focusProperties {
+                                down = firstRequester
+                            }
                             .tvFocusItem(
                                 focusRequester = closeBtnRequester,
                                 shape = RoundedCornerShape(8.dp),
-                                unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.30f),
                                 onClick = onDismiss
                             )
-                            .padding(8.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            LtrText(
+                                text = "X",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 

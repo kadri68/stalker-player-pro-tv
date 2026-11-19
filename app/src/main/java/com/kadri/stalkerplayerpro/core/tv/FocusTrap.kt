@@ -1,4 +1,3 @@
-@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 package com.kadri.stalkerplayerpro.core.tv
 
 import androidx.activity.compose.BackHandler
@@ -38,12 +37,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
-/**
- * حاوية حصر التركيز (Focus Trap) للقوائم المنبثقة والقوائم الجانبية:
- * 1. تنقل التركيز تلقائياً لأول عنصر عند الفتح.
- * 2. تمنع تسرب التركيز للعناصر الخلفية.
- * 3. تعيد التركيز للعنصر السابق عند الإغلاق.
- */
 @Composable
 fun TvFocusTrap(
     modifier: Modifier = Modifier,
@@ -63,29 +56,17 @@ fun TvFocusTrap(
     }
 
     Box(
-        modifier = modifier
-            .focusGroup()
-            .focusProperties {
-                exit = { FocusRequester.Cancel }
-            }
+        modifier = modifier.focusGroup()
     ) {
         content(initialFocusRequester)
     }
 }
 
-/**
- * معدل لمنع تسرب تركيز الريموت إلى الشاشة الخلفية أثناء فتح نافذة منبثقة
- */
 fun Modifier.blockFocusWhen(blocked: Boolean): Modifier =
     this.focusProperties {
         canFocus = !blocked
     }
 
-/**
- * حقل بحث آمن للتلفاز (TV-Safe Search Bar):
- * يمنع TextField من خطف التركيز تلقائياً أو فتح لوحة المفاتيح عند دخول الشاشة.
- * يعمل كزر تركيز عادي ولا يفعّل الإدخال النصي إلا عند ضغط المستخدم على OK.
- */
 @Composable
 fun TvSafeSearchBar(
     query: String,
@@ -201,39 +182,16 @@ fun TvSafeSearchBar(
                 imageVector = Icons.Default.Search,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(18.dp)
             )
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = query.ifBlank { placeholder },
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (query.isBlank()) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
+                color = if (query.isBlank()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                overflow = TextOverflow.Ellipsis
             )
-            if (query.isNotEmpty()) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .tvFocusItem(
-                            shape = RoundedCornerShape(6.dp),
-                            onClick = { onQueryChange("") }
-                        )
-                        .padding(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
         }
     }
 }
