@@ -7,8 +7,11 @@ import com.kadri.stalkerplayerpro.data.model.EpgProgram
 import com.kadri.stalkerplayerpro.data.model.EpisodeItem
 import com.kadri.stalkerplayerpro.data.model.VodItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
@@ -18,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
 object StalkerApiClient {
 
     private val tokenCache = ConcurrentHashMap<String, String>()
+    private val tokenMutexes = ConcurrentHashMap<String, Mutex>()
 
     private fun resolveEndpoint(rawUrl: String): String {
         val trimmed = rawUrl.trim().trimEnd('/')
@@ -58,15 +62,60 @@ object StalkerApiClient {
         }.getOrNull()
     }
 
-    private suspend fun getOrFetchToken(portal: PortalEntity): String? {
-        val cacheKey = "${portal.url.trim()}|${portal.mac.trim()}"
-        return tokenCache[cacheKey] ?: handshake(portal.url, portal.mac)
+    private fun activateProfile(endpoint: String, mac: String, token: String) {
+        runCatching {
+            val ts = System.currentTimeMillis() / 1000L
+            val q = "type=stb&action=get_profile&hd=1&stb_type=MAG250&image_version=218&video_out=hdmi&auth_second_step=1&not_valid_token=0&client_type=STB&timestamp=$ts&JsHttpRequest=1-xml"
+            val req = buildRequest(endpoint, q, mac, token)
+            HttpClientProvider.client.newCall(req).execute().close()
+        }
     }
+
+    private suspend fun getOrFetchToken(portal: PortalEntity, forceRefresh: Boolean = false): String? {
+        val cacheKey = "${portal.url.trim()}|${portal.mac.trim()}"
+        val mutex = tokenMutexes.getOrPut(cacheKey) { Mutex() }
+        return mutex.withLock {
+            if (!forceRefresh) {
+                val cached = tokenCache[cacheKey]
+                if (!cached.isNullOrBlank()) return@withLock cached
+            } else {
+                tokenCache.remove(cacheKey)
+            }
+            val fresh = handshake(portal.url, portal.mac)
+            if (!fresh.isNullOrBlank()) {
+                activateProfile(resolveEndpoint(portal.url), portal.mac, fresh)
+            }
+            fresh
+        }
+    }
+
+    private suspend fun executeAuthenticatedGet(portal: PortalEntity, query: String): String =
+        withContext(Dispatchers.IO) {
+            val endpoint = resolveEndpoint(portal.url)
+            var token = getOrFetchToken(portal, forceRefresh = false) ?: return@withContext ""
+            val firstBody = runCatching {
+                val req = buildRequest(endpoint, query, portal.mac, token)
+                HttpClientProvider.client.newCall(req).execute().use { it.body?.string().orEmpty() }
+            }.getOrDefault("")
+
+            val needsRetry = firstBody.isBlank() ||
+                !firstBody.trimStart().startsWith("{") ||
+                firstBody.contains("Authorization failed", ignoreCase = true)
+
+            if (!needsRetry) return@withContext firstBody
+
+            token = getOrFetchToken(portal, forceRefresh = true) ?: return@withContext firstBody
+            runCatching {
+                val retryReq = buildRequest(endpoint, query, portal.mac, token)
+                HttpClientProvider.client.newCall(retryReq).execute().use { it.body?.string().orEmpty() }
+            }.getOrDefault("")
+        }
 
     suspend fun checkPortalAccount(rawUrl: String, mac: String): Pair<Boolean, Long> = withContext(Dispatchers.IO) {
         val token = handshake(rawUrl, mac) ?: return@withContext (false to 0L)
         runCatching {
             val endpoint = resolveEndpoint(rawUrl)
+            activateProfile(endpoint, mac, token)
             val req = buildRequest(endpoint, "type=account_info&action=get_main_info&JsHttpRequest=1-xml", mac, token)
             HttpClientProvider.client.newCall(req).execute().use { resp ->
                 val body = resp.body?.string().orEmpty()
@@ -91,89 +140,88 @@ object StalkerApiClient {
         return 0L
     }
 
-    suspend fun getItvGenres(portal: PortalEntity): List<CategoryItem> = withContext(Dispatchers.IO) {
-        val token = getOrFetchToken(portal) ?: return@withContext emptyList()
-        runCatching {
-            val endpoint = resolveEndpoint(portal.url)
-            val req = buildRequest(endpoint, "type=itv&action=get_genres&JsHttpRequest=1-xml", portal.mac, token)
-            HttpClientProvider.client.newCall(req).execute().use { resp ->
-                val arr = JSONObject(resp.body?.string().orEmpty()).optJSONArray("js") ?: return@withContext emptyList()
-                val list = ArrayList<CategoryItem>(arr.length())
-                for (i in 0 until arr.length()) {
-                    val obj = arr.optJSONObject(i) ?: continue
-                    val id = obj.optString("id")
-                    val title = obj.optString("title")
-                    if (id.isNotBlank() && title.isNotBlank() && id != "*") {
-                        list.add(CategoryItem(id = id, name = title))
-                    }
-                }
-                list
+    private fun parseCategoriesFromJs(body: String): List<CategoryItem> {
+        if (body.isBlank()) return emptyList()
+        val root = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
+        val arr: JSONArray = root.optJSONArray("js")
+            ?: root.optJSONObject("js")?.optJSONArray("data")
+            ?: return emptyList()
+        val list = ArrayList<CategoryItem>(arr.length())
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val id = obj.optString("id")
+            val title = obj.optString("title")
+            if (id.isNotBlank() && title.isNotBlank() && id != "*") {
+                list.add(CategoryItem(id = id, name = title))
             }
-        }.getOrDefault(emptyList())
+        }
+        return list
+    }
+
+    suspend fun getItvGenres(portal: PortalEntity): List<CategoryItem> = withContext(Dispatchers.IO) {
+        val body = executeAuthenticatedGet(portal, "type=itv&action=get_genres&JsHttpRequest=1-xml")
+        parseCategoriesFromJs(body)
     }
 
     suspend fun getAllChannels(portal: PortalEntity): List<ChannelItem> = withContext(Dispatchers.IO) {
-        val token = getOrFetchToken(portal) ?: return@withContext emptyList()
-        runCatching {
-            val endpoint = resolveEndpoint(portal.url)
-            val req = buildRequest(endpoint, "type=itv&action=get_all_channels&JsHttpRequest=1-xml", portal.mac, token)
-            HttpClientProvider.client.newCall(req).execute().use { resp ->
-                val data = JSONObject(resp.body?.string().orEmpty())
-                    .optJSONObject("js")
-                    ?.optJSONArray("data") ?: return@withContext emptyList()
+        val body = executeAuthenticatedGet(portal, "type=itv&action=get_all_channels&JsHttpRequest=1-xml")
+        val primary = parseChannelsFromBody(portal.id, body)
+        if (primary.isNotEmpty()) return@withContext primary
 
-                val list = ArrayList<ChannelItem>(data.length())
-                for (i in 0 until data.length()) {
-                    val ch = data.optJSONObject(i) ?: continue
-                    val id = ch.optString("id")
-                    val num = ch.optString("number").toIntOrNull() ?: (i + 1)
-                    val name = ch.optString("name")
-                    val logo = ch.optString("logo")
-                    val genreId = ch.optString("tv_genre_id")
-                    val cmd = ch.optString("cmd")
-                    val curProg = ch.optJSONArray("cur_playing")?.optJSONObject(0)?.optString("name").orEmpty()
-                    if (id.isNotBlank() && name.isNotBlank()) {
-                        list.add(
-                            ChannelItem(
-                                uniqueKey = "${portal.id}_stk_live_${id}_$i",
-                                id = id,
-                                number = num,
-                                name = name,
-                                logoUrl = logo,
-                                categoryId = genreId,
-                                streamCmdOrUrl = cmd,
-                                epgNowTitle = curProg
-                            )
-                        )
-                    }
-                }
-                list
-            }
-        }.getOrDefault(emptyList())
+        val fallbackList = ArrayList<ChannelItem>()
+        for (page in 1..5) {
+            val pageBody = executeAuthenticatedGet(
+                portal,
+                "type=itv&action=get_ordered_list&genre=*&force_ch_link_check=&fav=0&sortby=number&hd=0&p=$page&JsHttpRequest=1-xml"
+            )
+            val pageItems = parseChannelsFromBody(portal.id, pageBody)
+            if (pageItems.isEmpty()) break
+            fallbackList.addAll(pageItems)
+            if (pageItems.size < 14) break
+        }
+        fallbackList
     }
 
-    private fun indexOrI(i: Int): Int = i
+    private fun parseChannelsFromBody(portalId: Long, body: String): List<ChannelItem> {
+        if (body.isBlank()) return emptyList()
+        val root = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
+        val data = root.optJSONObject("js")?.optJSONArray("data") ?: return emptyList()
+        val list = ArrayList<ChannelItem>(data.length())
+        for (i in 0 until data.length()) {
+            val ch = data.optJSONObject(i) ?: continue
+            val id = ch.optString("id")
+            val num = ch.optString("number").toIntOrNull() ?: (i + 1)
+            val name = ch.optString("name")
+            val logo = ch.optString("logo")
+            val genreId = ch.optString("tv_genre_id")
+            val cmd = ch.optString("cmd")
+            val curProg = ch.optJSONArray("cur_playing")?.optJSONObject(0)?.optString("name").orEmpty()
+            if (id.isNotBlank() && name.isNotBlank()) {
+                list.add(
+                    ChannelItem(
+                        uniqueKey = "${portalId}_stk_live_${id}_$i",
+                        id = id,
+                        number = num,
+                        name = name,
+                        logoUrl = logo,
+                        categoryId = genreId,
+                        streamCmdOrUrl = cmd,
+                        epgNowTitle = curProg
+                    )
+                )
+            }
+        }
+        return list
+    }
 
     suspend fun getVodCategories(portal: PortalEntity, type: String = "vod"): List<CategoryItem> =
         withContext(Dispatchers.IO) {
-            val token = getOrFetchToken(portal) ?: return@withContext emptyList()
-            runCatching {
-                val endpoint = resolveEndpoint(portal.url)
-                val req = buildRequest(endpoint, "type=$type&action=get_categories&JsHttpRequest=1-xml", portal.mac, token)
-                HttpClientProvider.client.newCall(req).execute().use { resp ->
-                    val arr = JSONObject(resp.body?.string().orEmpty()).optJSONArray("js") ?: return@withContext emptyList()
-                    val list = ArrayList<CategoryItem>(arr.length())
-                    for (i in 0 until arr.length()) {
-                        val obj = arr.optJSONObject(i) ?: continue
-                        val id = obj.optString("id")
-                        val title = obj.optString("title")
-                        if (id.isNotBlank() && title.isNotBlank() && id != "*") {
-                            list.add(CategoryItem(id = id, name = title))
-                        }
-                    }
-                    list
-                }
-            }.getOrDefault(emptyList())
+            val body = executeAuthenticatedGet(portal, "type=$type&action=get_categories&JsHttpRequest=1-xml")
+            val primary = parseCategoriesFromJs(body)
+            if (primary.isNotEmpty() || type != "series") return@withContext primary
+
+            val vodFallbackBody = executeAuthenticatedGet(portal, "type=vod&action=get_categories&JsHttpRequest=1-xml")
+            parseCategoriesFromJs(vodFallbackBody)
         }
 
     suspend fun getVodOrderedList(
@@ -183,51 +231,62 @@ object StalkerApiClient {
         page: Int = 1,
         searchQuery: String = ""
     ): List<VodItem> = withContext(Dispatchers.IO) {
-        val token = getOrFetchToken(portal) ?: return@withContext emptyList()
-        runCatching {
-            val endpoint = resolveEndpoint(portal.url)
-            val encodedSearch = URLEncoder.encode(searchQuery, "UTF-8")
-            val q = "type=$type&action=get_ordered_list&category=$categoryId&p=$page&search=$encodedSearch&JsHttpRequest=1-xml"
-            val req = buildRequest(endpoint, q, portal.mac, token)
-            HttpClientProvider.client.newCall(req).execute().use { resp ->
-                val data = JSONObject(resp.body?.string().orEmpty())
-                    .optJSONObject("js")
-                    ?.optJSONArray("data") ?: return@withContext emptyList()
+        val encodedSearch = URLEncoder.encode(searchQuery, "UTF-8")
+        val catsToTry = if (categoryId == "*") listOf("*", "0") else listOf(categoryId)
+        val typesToTry = if (type == "series") listOf("series", "vod") else listOf(type)
 
-                val list = ArrayList<VodItem>(data.length())
-                for (i in 0 until data.length()) {
-                    val obj = data.optJSONObject(i) ?: continue
-                    val id = obj.optString("id")
-                    val name = obj.optString("name")
-                    val screenshot = obj.optString("screenshot_uri")
-                    val year = obj.optString("year")
-                    val rating = obj.optString("rating_imdb")
-                    val cmd = obj.optString("cmd")
-                    val isSeriesFlag = type == "series" || obj.optInt("is_series", 0) == 1
-                    if (id.isNotBlank() && name.isNotBlank()) {
-                        list.add(
-                            VodItem(
-                                uniqueKey = "${portal.id}_stk_${type}_${id}_p${page}_$i",
-                                id = id,
-                                name = name,
-                                posterUrl = screenshot,
-                                categoryId = categoryId,
-                                year = year,
-                                rating = rating,
-                                streamCmdOrUrl = cmd,
-                                isSeries = isSeriesFlag
-                            )
-                        )
-                    }
+        for (t in typesToTry) {
+            for (cat in catsToTry) {
+                val q = "type=$t&action=get_ordered_list&category=$cat&genre=$cat&sortby=added&not_ended=0&p=$page&search=$encodedSearch&JsHttpRequest=1-xml"
+                val body = executeAuthenticatedGet(portal, q)
+                val parsed = parseVodListFromBody(portal.id, t, categoryId, page, body)
+                if (parsed.isNotEmpty()) {
+                    return@withContext parsed
                 }
-                list
             }
-        }.getOrDefault(emptyList())
+        }
+        emptyList()
     }
 
-    /**
-     * جلب مواسم وحلقات المسلسل كاملة في Stalker Portal
-     */
+    private fun parseVodListFromBody(
+        portalId: Long,
+        type: String,
+        requestedCategoryId: String,
+        page: Int,
+        body: String
+    ): List<VodItem> {
+        if (body.isBlank()) return emptyList()
+        val root = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
+        val data = root.optJSONObject("js")?.optJSONArray("data") ?: return emptyList()
+        val list = ArrayList<VodItem>(data.length())
+        for (i in 0 until data.length()) {
+            val obj = data.optJSONObject(i) ?: continue
+            val id = obj.optString("id")
+            val name = obj.optString("name")
+            val screenshot = obj.optString("screenshot_uri")
+            val year = obj.optString("year")
+            val rating = obj.optString("rating_imdb")
+            val cmd = obj.optString("cmd")
+            val isSeriesFlag = type == "series" || obj.optInt("is_series", 0) == 1
+            if (id.isNotBlank() && name.isNotBlank()) {
+                list.add(
+                    VodItem(
+                        uniqueKey = "${portalId}_stk_${type}_${id}_p${page}_$i",
+                        id = id,
+                        name = name,
+                        posterUrl = screenshot,
+                        categoryId = requestedCategoryId,
+                        year = year,
+                        rating = rating,
+                        streamCmdOrUrl = cmd,
+                        isSeries = isSeriesFlag
+                    )
+                )
+            }
+        }
+        return list
+    }
+
     suspend fun getSeriesSeasonsAndEpisodes(
         portal: PortalEntity,
         seriesItem: VodItem

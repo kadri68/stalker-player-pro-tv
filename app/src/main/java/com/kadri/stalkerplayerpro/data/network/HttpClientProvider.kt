@@ -13,9 +13,9 @@ object HttpClientProvider {
     val client: OkHttpClient by lazy {
         val builder = OkHttpClient.Builder()
             .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
-            .connectTimeout(7, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(45, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .followRedirects(true)
             .followSslRedirects(true)
