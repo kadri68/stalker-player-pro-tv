@@ -1658,32 +1658,6 @@ private fun LiveSideHistoryDrawer(
 }
 
 
-private fun cleanMovieTitleForSubtitleSearch(raw: String): String {
-    if (raw.isBlank()) return ""
-    var s = raw.trim()
-    val allYears = Regex("\\b(19\\d{2}|20\\d{2})\\b").findAll(s).toList()
-    val year = allYears.lastOrNull()?.value.orEmpty()
-    s = s.replace(Regex("\\b(19\\d{2}|20\\d{2})[-/.]\\d{1,2}[-/.]\\d{1,2}\\b"), " ")
-    s = s.replace(Regex("\\b\\d{1,2}[-/.]\\d{1,2}[-/.](19\\d{2}|20\\d{2})\\b"), " ")
-    s = s.replace(Regex("\\[[^\\]]*\\]|\\([^)]*\\)|\\{[^}]*\\}"), " ")
-    s = s.replace(Regex("(?i)^\\s*(top(\\s*\\d+)?|new|vip|hot|best|4k|8k|uhd|fhd|hd|sd|cam|ts|tc|dvd|bluray|blu-ray|web-dl|webrip|netflix|nf|amazon|prime|disney\\+?|apple\\s*tv\\+?|hbo(\\s*max)?|osn|shahid|mbc|bein|rotana|art|starz|hulu|paramount\\+?|peacock|marvel|dc|imdb|box\\s*office|oscar|movies?|films?|vod|series|ar|en|fr|es|tr|de|it|ru|hi|ko|ja|multi|sub|subs|dub|dubbed|vostfr|vf|truefrench|أفلام|افلام|فيلم|مسلسل|حصري|حصريا|جديد|مترجم|مدبلج|ترجمة)\\s*[:|\\-–—]\\s*"), "")
-    if (s.contains(":")) {
-        val afterColon = s.substringAfter(":").trim()
-        val afterWords = afterColon.replace(Regex("\\b(19\\d{2}|20\\d{2})\\b"), "").trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        if (afterWords.size >= 4) {
-            s = afterColon
-        }
-    }
-    s = s.replace(Regex("[._]+"), " ")
-    s = s.replace(Regex("(?i)\\b(1080p|720p|480p|2160p|4k|8k|uhd|fhd|hd|sd|hdr|hdr10|dv|dolby|vision|atmos|bluray|blu-ray|bdrip|brrip|web-dl|webdl|webrip|hdrip|dvdrip|hdtv|x264|x265|hevc|h264|h265|10bit|8bit|aac|ac3|eac3|dts|truehd|flac|mp3|dual|multi|sub|subs|subbed|dub|dubbed|vf|vostfr|truefrench|ar|en|fr|tr|es|mp4|mkv|avi|remux|proper|repack|extended|unrated|imax)\\b"), " ")
-    s = s.replace(Regex("(^|\\s)(فيلم|مسلسل|حلقة|الحلقة|الموسم|الجزء|مترجم|مدبلج|حصريا|حصري|جودة عالية|كامل|اون لاين|أون لاين|نسخة أصلية|بلوراي|ويب ديل)(\\s|$)"), " ")
-    s = s.replace(Regex("\\b(19\\d{2}|20\\d{2})\\b"), " ")
-    s = s.replace(Regex("[|•★☆~#*+=<>\\[\\](){}/\\\\]+"), " ")
-    s = s.replace(Regex("\\s+[-–—]+\\s+"), " ")
-    s = s.replace(Regex("\\s+"), " ").trim(' ', '-', ':', '.', '_')
-    return if (year.isNotEmpty() && s.isNotEmpty()) "$s $year" else s.ifEmpty { raw.trim() }
-}
-
 @Composable
 private fun SubtitleSearchDialog(
     initialQuery: String,
@@ -1703,8 +1677,7 @@ private fun SubtitleSearchDialog(
     var statusMsg by remember { mutableStateOf("") }
 
     fun executeDualSearch() {
-        val cleanedBeforeSearch = cleanMovieTitleForSubtitleSearch(searchBoxText)
-        if (cleanedBeforeSearch.isNotBlank()) searchBoxText = cleanedBeforeSearch
+        searchBoxText = searchBoxText.trim()
         if (searchBoxText.isBlank()) return
         SubtitleRepository.lastSearchDiagnostic = ""
         if (settings.openSubApiKey.isBlank() && settings.subdlApiKey.isBlank()) {
