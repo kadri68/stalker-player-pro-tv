@@ -262,6 +262,7 @@ fun TvPlayerScreen(
         controller.playStream(playableUrl, currentRequest.resumePositionMs, isLive = (currentRequest.contentType == "LIVE"))
 
         if (savedSub != null) {
+            controller.hasExternalSubtitlesActive = true
             controller.selectEmbeddedSubtitleTrack(null)
             Toast.makeText(
                 context,
@@ -1007,6 +1008,7 @@ fun TvPlayerScreen(
                 settingsStore = settingsStore,
                 isAr = isAr,
                 onSubtitleLoaded = { loadedCues ->
+                    controller.hasExternalSubtitlesActive = true
                     controller.selectEmbeddedSubtitleTrack(null)
                     subtitleCues = loadedCues
                     subtitleOffsetMs = 0L
@@ -1049,118 +1051,11 @@ fun TvPlayerScreen(
 
         if (showEmbeddedSubtitlesDialog) {
             TvModalDialog(
-                title = if (isAr) "الصوت والترجمة المدمجة ومظهرها" else "Audio, Embedded Subtitles & Style",
+                title = if (isAr) "الترجمة المدمجة في الفيديو" else "Embedded Video Subtitles",
                 onDismiss = { showEmbeddedSubtitlesDialog = false },
-                maxWidth = 600.dp,
+                maxWidth = 500.dp,
                 scrollableBody = true
             ) { firstRequester ->
-                Text(
-                    text = if (isAr) "مسارات الصوت المتاحة:" else "Available Audio Tracks:",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                if (controller.audioTracks.isEmpty()) {
-                    Text(
-                        text = if (isAr) "مسار صوت افتراضي واحد" else "Single default audio track",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        controller.audioTracks.forEach { track ->
-                            Box(
-                                modifier = Modifier
-                                    .tvFocusItem(
-                                        shape = RoundedCornerShape(8.dp),
-                                        unfocusedBackgroundColor = if (track.isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                        onClick = { controller.selectAudioTrack(track) }
-                                    )
-                                    .padding(horizontal = 12.dp, vertical = 7.dp)
-                            ) {
-                                Text(
-                                    text = track.label,
-                                    color = if (track.isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = if (isAr) "خصائص الترجمة (الحجم / اللون / الشفافية):" else "Subtitle Style (Size / Color / Opacity):",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(22f to (if (isAr) "صغير" else "S"), 28f to (if (isAr) "متوسط" else "M"), 34f to (if (isAr) "كبير" else "L"), 38f to (if (isAr) "كبير جداً" else "XL")).forEach { (spVal, lbl) ->
-                        val act = kotlin.math.abs(subSizeSp - spVal) < 1f
-                        Box(
-                            modifier = Modifier.weight(1f).tvFocusItem(
-                                shape = RoundedCornerShape(8.dp),
-                                unfocusedBackgroundColor = if (act) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                onClick = {
-                                    subSizeSp = spVal
-                                    controller.updateSubtitleAppearance(subColor, spVal, subBgAlpha)
-                                    scope.launch { settingsStore.updateSubtitleStyle(subColor, spVal, subBgAlpha) }
-                                }
-                            ).padding(vertical = 6.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = lbl, color = if (act) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(0xFFFFFFFF to (if (isAr) "أبيض" else "White"), 0xFFFFD600 to (if (isAr) "أصفر" else "Yellow"), 0xFF00E5FF to (if (isAr) "سماوي" else "Cyan"), 0xFF00E676 to (if (isAr) "أخضر" else "Green")).forEach { (hex, lbl) ->
-                        val act = subColor == hex
-                        Box(
-                            modifier = Modifier.weight(1f).tvFocusItem(
-                                shape = RoundedCornerShape(8.dp),
-                                unfocusedBackgroundColor = if (act) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                onClick = {
-                                    subColor = hex
-                                    controller.updateSubtitleAppearance(hex, subSizeSp, subBgAlpha)
-                                    scope.launch { settingsStore.updateSubtitleStyle(hex, subSizeSp, subBgAlpha) }
-                                }
-                            ).padding(vertical = 6.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = lbl, color = Color(hex), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    listOf(0f to "0%", 0.65f to "65%").forEach { (alVal, lbl) ->
-                        val act = kotlin.math.abs(subBgAlpha - alVal) < 0.08f
-                        Box(
-                            modifier = Modifier.tvFocusItem(
-                                shape = RoundedCornerShape(8.dp),
-                                unfocusedBackgroundColor = if (act) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                onClick = {
-                                    subBgAlpha = alVal
-                                    controller.updateSubtitleAppearance(subColor, subSizeSp, alVal)
-                                    scope.launch { settingsStore.updateSubtitleStyle(subColor, subSizeSp, alVal) }
-                                }
-                            ).padding(horizontal = 8.dp, vertical = 6.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = lbl, color = if (act) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = if (isAr) "مسارات الترجمة المدمجة في الفيلم:" else "Embedded Subtitle Tracks:",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
                 if (controller.embeddedSubtitleTracks.isEmpty()) {
                     Text(
                         text = if (isAr) "لا توجد ترجمة مدمجة داخل ملف الفيديو، يمكنك البحث عن ترجمة خارجية." else "No embedded subtitles in this stream. Try External Subtitles search.",
@@ -1168,47 +1063,45 @@ fun TvPlayerScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    val noneSelected = controller.embeddedSubtitleTracks.none { it.isSelected }
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .tvFocusItem(
-                                        focusRequester = firstRequester,
-                                        shape = RoundedCornerShape(10.dp),
-                                        unfocusedBackgroundColor = if (noneSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
-                                        onClick = {
-                                            controller.selectEmbeddedSubtitleTrack(null)
-                                            showEmbeddedSubtitlesDialog = false
-                                        }
-                                    )
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = if (noneSelected) (if (isAr) "✓ إيقاف الترجمة المدمجة" else "✓ Off (Disabled)") else (if (isAr) "إيقاف الترجمة المدمجة" else "Off (Disabled)"),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
+                    val noneSelected = controller.embeddedSubtitleTracks.none { it.isSelected } || controller.hasExternalSubtitlesActive
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvFocusItem(
+                                    focusRequester = firstRequester,
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = if (noneSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
+                                    onClick = {
+                                        controller.selectEmbeddedSubtitleTrack(null)
+                                        showEmbeddedSubtitlesDialog = false
+                                    }
                                 )
-                            }
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (noneSelected) (if (isAr) "✓ إيقاف الترجمة المدمجة" else "✓ Off (Disabled)") else (if (isAr) "إيقاف الترجمة المدمجة" else "Off (Disabled)"),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
-                        itemsIndexed(
-                            items = controller.embeddedSubtitleTracks,
-                            key = { idx, sub -> "emb_sub_${sub.id}_$idx" }
-                        ) { _, track ->
+                        controller.embeddedSubtitleTracks.forEach { track ->
+                            val isTrackActive = track.isSelected && !controller.hasExternalSubtitlesActive
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .tvFocusItem(
                                         shape = RoundedCornerShape(10.dp),
-                                        unfocusedBackgroundColor = if (track.isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
+                                        unfocusedBackgroundColor = if (isTrackActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
                                         onClick = {
                                             subtitleCues = emptyList()
+                                            subtitleOffsetMs = 0L
+                                            controller.hasExternalSubtitlesActive = false
                                             controller.selectEmbeddedSubtitleTrack(track)
                                             Toast.makeText(
                                                 context,
-                                                if (isAr) "الترجمة المدمجة: ${track.label}" else "Subtitle: ${track.label}",
+                                                if (isAr) "تم تفعيل الترجمة المدمجة: ${track.label}" else "Embedded Subtitle: ${track.label}",
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                             showEmbeddedSubtitlesDialog = false
@@ -1218,7 +1111,7 @@ fun TvPlayerScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (track.isSelected) "✓ ${track.label}" else track.label,
+                                    text = if (isTrackActive) "✓ ${track.label}" else track.label,
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
@@ -1767,18 +1660,26 @@ private fun LiveSideHistoryDrawer(
 
 private fun cleanMovieTitleForSubtitleSearch(raw: String): String {
     if (raw.isBlank()) return ""
-    var s = raw
-    val yearMatch = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(s)
-    val year = yearMatch?.value.orEmpty()
+    var s = raw.trim()
+    val allYears = Regex("\\b(19\\d{2}|20\\d{2})\\b").findAll(s).toList()
+    val year = allYears.lastOrNull()?.value.orEmpty()
     s = s.replace(Regex("\\b(19\\d{2}|20\\d{2})[-/.]\\d{1,2}[-/.]\\d{1,2}\\b"), " ")
     s = s.replace(Regex("\\b\\d{1,2}[-/.]\\d{1,2}[-/.](19\\d{2}|20\\d{2})\\b"), " ")
     s = s.replace(Regex("\\[[^\\]]*\\]|\\([^)]*\\)|\\{[^}]*\\}"), " ")
+    s = s.replace(Regex("(?i)^\\s*(top(\\s*\\d+)?|new|vip|hot|best|4k|8k|uhd|fhd|hd|sd|cam|ts|tc|dvd|bluray|blu-ray|web-dl|webrip|netflix|nf|amazon|prime|disney\\+?|apple\\s*tv\\+?|hbo(\\s*max)?|osn|shahid|mbc|bein|rotana|art|starz|hulu|paramount\\+?|peacock|marvel|dc|imdb|box\\s*office|oscar|movies?|films?|vod|series|ar|en|fr|es|tr|de|it|ru|hi|ko|ja|multi|sub|subs|dub|dubbed|vostfr|vf|truefrench|أفلام|افلام|فيلم|مسلسل|حصري|حصريا|جديد|مترجم|مدبلج|ترجمة)\\s*[:|\\-–—]\\s*"), "")
+    if (s.contains(":")) {
+        val afterColon = s.substringAfter(":").trim()
+        val afterWords = afterColon.replace(Regex("\\b(19\\d{2}|20\\d{2})\\b"), "").trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (afterWords.size >= 4) {
+            s = afterColon
+        }
+    }
     s = s.replace(Regex("[._]+"), " ")
-    s = s.replace(Regex("(?i)\\b(1080p|720p|480p|2160p|4k|uhd|fhd|hd|sd|bluray|blu-ray|bdrip|brrip|web-dl|webrip|hdrip|dvdrip|x264|x265|hevc|h264|h265|aac|ac3|dts|dual|multi|sub|subs|dubbed|vf|vostfr|ar|en|fr|tr|mp4|mkv|avi)\\b"), " ")
-    s = s.replace(Regex("(^|\\s)(فيلم|مسلسل|حلقة|الحلقة|الموسم|الجزء|مترجم|مدبلج|حصريا|حصري|جودة عالية|كامل|اون لاين|أون لاين)(\\s|$)"), " ")
+    s = s.replace(Regex("(?i)\\b(1080p|720p|480p|2160p|4k|8k|uhd|fhd|hd|sd|hdr|hdr10|dv|dolby|vision|atmos|bluray|blu-ray|bdrip|brrip|web-dl|webdl|webrip|hdrip|dvdrip|hdtv|x264|x265|hevc|h264|h265|10bit|8bit|aac|ac3|eac3|dts|truehd|flac|mp3|dual|multi|sub|subs|subbed|dub|dubbed|vf|vostfr|truefrench|ar|en|fr|tr|es|mp4|mkv|avi|remux|proper|repack|extended|unrated|imax)\\b"), " ")
+    s = s.replace(Regex("(^|\\s)(فيلم|مسلسل|حلقة|الحلقة|الموسم|الجزء|مترجم|مدبلج|حصريا|حصري|جودة عالية|كامل|اون لاين|أون لاين|نسخة أصلية|بلوراي|ويب ديل)(\\s|$)"), " ")
     s = s.replace(Regex("\\b(19\\d{2}|20\\d{2})\\b"), " ")
     s = s.replace(Regex("[|•★☆~#*+=<>\\[\\](){}/\\\\]+"), " ")
-    s = s.replace(Regex("\\s+[-–—:]+\\s+"), " ")
+    s = s.replace(Regex("\\s+[-–—]+\\s+"), " ")
     s = s.replace(Regex("\\s+"), " ").trim(' ', '-', ':', '.', '_')
     return if (year.isNotEmpty() && s.isNotEmpty()) "$s $year" else s.ifEmpty { raw.trim() }
 }

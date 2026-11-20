@@ -807,10 +807,10 @@ private fun SettingsSubtitleStyleDialog(
     onDismiss: () -> Unit
 ) {
     var selectedColor by remember { mutableStateOf(settings.subTextColor) }
-    var fontSize by remember { mutableStateOf(settings.subFontSizeSp) }
-    var bgAlpha by remember { mutableStateOf(settings.subBgAlpha) }
+    var selectedSize by remember { mutableStateOf(settings.subFontSizeSp) }
+    var selectedAlpha by remember { mutableStateOf(settings.subBgAlpha) }
 
-    val colors = listOf(
+    val colorChoices = listOf(
         0xFFFFFFFFL to (if (isAr) "أبيض" else "White"),
         0xFFFFD600L to (if (isAr) "أصفر" else "Yellow"),
         0xFF00E5FFL to (if (isAr) "سماوي" else "Cyan"),
@@ -819,151 +819,143 @@ private fun SettingsSubtitleStyleDialog(
     )
 
     TvModalDialog(
-        title = if (isAr) "مظهر وحجم خط الترجمة" else "Subtitle Appearance",
+        title = if (isAr) "تخصيص لون وحجم الترجمة" else "Customize Subtitle Color & Size",
         onDismiss = onDismiss,
-        maxWidth = 540.dp
+        maxWidth = 560.dp,
+        scrollableBody = true,
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = onDismiss
+                        )
+                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "إلغاء" else "Cancel",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = {
+                                onSave(selectedColor, selectedSize, selectedAlpha)
+                            }
+                        )
+                        .padding(horizontal = 24.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "حفظ" else "Save",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
     ) { firstRequester ->
         Text(
             text = if (isAr) "لون النص:" else "Text Color:",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            colors.forEachIndexed { idx, (hex, label) ->
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            colorChoices.forEachIndexed { idx, (hex, label) ->
                 val active = selectedColor == hex
                 Box(
                     modifier = Modifier
+                        .weight(1f)
                         .tvFocusItem(
                             focusRequester = if (idx == 0) firstRequester else null,
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedColor = hex }
                         )
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = label,
-                        color = Color(hex),
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(22f to (if (isAr) "صغير" else "Small"), 28f to (if (isAr) "متوسط" else "Medium"), 34f to (if (isAr) "كبير" else "Large"), 38f to (if (isAr) "كبير جداً" else "X-Large")).forEach { (presetSp, presetLabel) ->
-                val isPreset = kotlin.math.abs(fontSize - presetSp) < 1f
-                Box(
-                    modifier = Modifier
-                        .tvFocusItem(
-                            shape = RoundedCornerShape(8.dp),
-                            unfocusedBackgroundColor = if (isPreset) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            onClick = { fontSize = presetSp }
-                        )
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = presetLabel,
-                        color = if (isPreset) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else Color(hex),
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold
+                        maxLines = 1
                     )
                 }
             }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = if (isAr) "حجم الخط: ${fontSize.roundToInt()}sp" else "Font Size: ${fontSize.roundToInt()}sp",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Box(
-                modifier = Modifier
-                    .tvFocusItem(
-                        shape = RoundedCornerShape(8.dp),
-                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                        onClick = { fontSize = (fontSize - 2f).coerceAtLeast(16f) }
-                    )
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) { Text("A-", color = MaterialTheme.colorScheme.onSurface) }
-            Box(
-                modifier = Modifier
-                    .tvFocusItem(
-                        shape = RoundedCornerShape(8.dp),
-                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                        onClick = { fontSize = (fontSize + 2f).coerceAtMost(42f) }
-                    )
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) { Text("A+", color = MaterialTheme.colorScheme.onSurface) }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = if (isAr) "خلفية النص:" else "Background:",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            listOf(0f to (if (isAr) "شفاف" else "None"), 0.55f to "55%", 0.85f to "85%").forEach { (alphaVal, lbl) ->
-                val active = kotlin.math.abs(bgAlpha - alphaVal) < 0.05f
+        Text(
+            text = if (isAr) "حجم الخط:" else "Font Size:",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(18f to "18sp", 22f to "22sp", 26f to "26sp", 30f to "30sp", 36f to "36sp", 42f to "42sp").forEach { (spVal, lbl) ->
+                val active = kotlin.math.abs(selectedSize - spVal) < 1f
                 Box(
                     modifier = Modifier
+                        .weight(1f)
                         .tvFocusItem(
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            onClick = { bgAlpha = alphaVal }
+                            onClick = { selectedSize = spVal }
                         )
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
+                    LtrText(
                         text = lbl,
-                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelMedium
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.Black.copy(alpha = bgAlpha), RoundedCornerShape(8.dp))
-                .padding(10.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (isAr) "نموذج معاينة خط ولون الترجمة" else "Sample Subtitle Preview",
-                color = Color(selectedColor),
-                fontSize = androidx.compose.ui.unit.TextUnit(fontSize, androidx.compose.ui.unit.TextUnitType.Sp),
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center
-            )
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Box(
-                modifier = Modifier
-                    .tvFocusItem(
-                        shape = RoundedCornerShape(8.dp),
-                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                        onClick = { onSave(selectedColor, fontSize, bgAlpha) }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = if (isAr) "شفافية الخلفية:" else "Background Opacity:",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0f to "0%", 0.45f to "45%", 0.65f to "65%", 0.9f to "90%").forEach { (alphaVal, lbl) ->
+                val active = kotlin.math.abs(selectedAlpha - alphaVal) < 0.08f
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { selectedAlpha = alphaVal }
+                        )
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LtrText(
+                        text = lbl,
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelLarge
                     )
-                    .padding(horizontal = 18.dp, vertical = 9.dp)
-            ) {
-                Text(
-                    text = if (isAr) "حفظ" else "Save",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.labelLarge
-                )
+                }
             }
         }
     }
 }
+
 
 @Composable
 private fun ClassicSettingsRow(

@@ -65,10 +65,19 @@ object SubtitleRepository {
         val normalizedQuery = rawQuery.trim().lowercase(Locale.US)
 
         val firstAttempt = executeOsSearch(cleanKey, jwtToken, normalizedQuery, year, languages)
-        if (firstAttempt.isNotEmpty() || year == null) {
-            return@withContext firstAttempt
+        if (firstAttempt.isNotEmpty()) return@withContext firstAttempt
+        if (year != null) {
+            val noYearAttempt = executeOsSearch(cleanKey, jwtToken, normalizedQuery, null, languages)
+            if (noYearAttempt.isNotEmpty()) return@withContext noYearAttempt
         }
-        executeOsSearch(cleanKey, jwtToken, normalizedQuery, null, languages)
+        if (normalizedQuery.contains(":")) {
+            val afterColon = normalizedQuery.substringAfterLast(":").trim()
+            if (afterColon.length >= 3) {
+                val colonAttempt = executeOsSearch(cleanKey, jwtToken, afterColon, year, languages)
+                if (colonAttempt.isNotEmpty()) return@withContext colonAttempt
+            }
+        }
+        emptyList()
     }
 
     private fun executeOsSearch(
@@ -156,10 +165,19 @@ object SubtitleRepository {
         if (cleanKey.isBlank() || rawQuery.isBlank()) return@withContext emptyList()
         val cleanQuery = rawQuery.trim()
         val firstAttempt = executeSubdlSearch(cleanKey, cleanQuery, year, languages)
-        if (firstAttempt.isNotEmpty() || year == null) {
-            return@withContext firstAttempt
+        if (firstAttempt.isNotEmpty()) return@withContext firstAttempt
+        if (year != null) {
+            val noYearAttempt = executeSubdlSearch(cleanKey, cleanQuery, null, languages)
+            if (noYearAttempt.isNotEmpty()) return@withContext noYearAttempt
         }
-        executeSubdlSearch(cleanKey, cleanQuery, null, languages)
+        if (cleanQuery.contains(":")) {
+            val afterColon = cleanQuery.substringAfterLast(":").trim()
+            if (afterColon.length >= 3) {
+                val colonAttempt = executeSubdlSearch(cleanKey, afterColon, year, languages)
+                if (colonAttempt.isNotEmpty()) return@withContext colonAttempt
+            }
+        }
+        emptyList()
     }
 
     private fun executeSubdlSearch(

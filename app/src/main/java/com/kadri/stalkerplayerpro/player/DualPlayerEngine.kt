@@ -113,6 +113,8 @@ class DualPlayerController(
     var liveEmbeddedCueText by mutableStateOf("")
         private set
 
+    var hasExternalSubtitlesActive by mutableStateOf(false)
+
     fun needsStreamRecovery(): Boolean {
         if (isManuallyPaused) return false
         return if (activeEngine == ActiveEngineType.EXOPLAYER) {
@@ -155,6 +157,7 @@ class DualPlayerController(
         hasAppliedInitialVlcSpuPref = false
         embeddedSubtitleTracks = emptyList()
         liveEmbeddedCueText = ""
+        hasExternalSubtitlesActive = false
         selectedVlcSpuId = null
         pendingSeekMs = startPositionMs.coerceAtLeast(0L)
         autoSwitchedForUrl = forceVlc
@@ -551,7 +554,7 @@ class DualPlayerController(
             }
         }
         embeddedSubtitleTracks = list
-        if (!hasAppliedInitialExoTextPref && list.isNotEmpty()) {
+        if (!hasAppliedInitialExoTextPref && !hasExternalSubtitlesActive && list.isNotEmpty()) {
             hasAppliedInitialExoTextPref = true
             if (preferredSubtitleLang.equals("off", ignoreCase = true)) {
                 selectEmbeddedSubtitleTrack(null)
@@ -577,7 +580,7 @@ class DualPlayerController(
             )
         }
         embeddedSubtitleTracks = list
-        if (!hasAppliedInitialVlcSpuPref && list.isNotEmpty()) {
+        if (!hasAppliedInitialVlcSpuPref && !hasExternalSubtitlesActive && list.isNotEmpty()) {
             hasAppliedInitialVlcSpuPref = true
             if (preferredSubtitleLang.equals("off", ignoreCase = true)) {
                 player.spuTrack = -1
@@ -594,6 +597,11 @@ class DualPlayerController(
 
     fun selectEmbeddedSubtitleTrack(track: EmbeddedSubtitleTrackInfo?) {
         liveEmbeddedCueText = ""
+        hasAppliedInitialExoTextPref = true
+        hasAppliedInitialVlcSpuPref = true
+        if (track != null) {
+            hasExternalSubtitlesActive = false
+        }
         if (activeEngine == ActiveEngineType.EXOPLAYER) {
             val exo = exoPlayer ?: return
             if (track == null) {
