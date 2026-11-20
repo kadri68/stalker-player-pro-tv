@@ -13,8 +13,8 @@ android {
         applicationId = "com.kadri.stalkerplayerpro.tv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.9.6"
+        versionCode = 18
+        versionName = "1.9.7"
     }
 
     splits {
@@ -29,7 +29,7 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
-            resValue("string", "app_name", "Stalker Player Pro v1.9.6")
+            resValue("string", "app_name", "Stalker Player Pro v1.9.7")
         }
         release {
             isMinifyEnabled = true

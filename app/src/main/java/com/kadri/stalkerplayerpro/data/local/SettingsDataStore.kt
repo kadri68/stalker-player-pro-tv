@@ -30,7 +30,7 @@ data class TvUserSettings(
     val openSubJwtToken: String = "",
     val subdlApiKey: String = "",
     val subTextColor: Long = 0xFFFFD600,
-    val subFontSizeSp: Float = 36f,
+    val subFontSizeSp: Float = 38f,
     val subBgAlpha: Float = 0.65f
 )
 
@@ -77,7 +77,7 @@ class SettingsDataStore(private val context: Context) {
             openSubJwtToken = prefs[KEY_OS_TOKEN] ?: "",
             subdlApiKey = prefs[KEY_SUBDL_API_KEY] ?: "",
             subTextColor = prefs[KEY_SUB_COLOR] ?: 0xFFFFD600,
-            subFontSizeSp = prefs[KEY_SUB_SIZE] ?: 36f,
+            subFontSizeSp = prefs[KEY_SUB_SIZE] ?: 38f,
             subBgAlpha = prefs[KEY_SUB_BG_ALPHA] ?: 0.65f
         )
     }

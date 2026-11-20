@@ -110,6 +110,21 @@ class DualPlayerController(
     var isReconnecting by mutableStateOf(false)
         private set
 
+    var liveEmbeddedCueText by mutableStateOf("")
+        private set
+
+    fun needsStreamRecovery(): Boolean {
+        if (isManuallyPaused) return false
+        return if (activeEngine == ActiveEngineType.EXOPLAYER) {
+            val exo = exoPlayer
+            exo == null || exo.playbackState == Player.STATE_IDLE || exo.playbackState == Player.STATE_ENDED || exo.playerError != null || (!exo.isPlaying && !isBuffering)
+        } else {
+            val mp = vlcPlayer
+            val st = mp?.playerState ?: -1
+            mp == null || st == org.videolan.libvlc.interfaces.IMedia.State.Stopped || st == org.videolan.libvlc.interfaces.IMedia.State.Ended || st == org.videolan.libvlc.interfaces.IMedia.State.Error || (!mp.isPlaying && !isBuffering)
+        }
+    }
+
     private var currentUrl: String = ""
     private var isLiveStream: Boolean = false
     private var isManuallyPaused: Boolean = false
@@ -139,6 +154,7 @@ class DualPlayerController(
         hasAppliedInitialExoTextPref = false
         hasAppliedInitialVlcSpuPref = false
         embeddedSubtitleTracks = emptyList()
+        liveEmbeddedCueText = ""
         selectedVlcSpuId = null
         pendingSeekMs = startPositionMs.coerceAtLeast(0L)
         autoSwitchedForUrl = forceVlc
@@ -250,6 +266,13 @@ class DualPlayerController(
                 if (playing && !hasRenderedFirstVideoFrame && exoPlayingWithoutVideoStartMs == 0L) {
                     exoPlayingWithoutVideoStartMs = System.currentTimeMillis()
                 }
+            }
+
+            override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                val combined = cueGroup.cues
+                    .mapNotNull { it.text?.toString() }
+                    .joinToString("\n")
+                liveEmbeddedCueText = sanitizeSubtitleText(combined)
             }
 
             override fun onRenderedFirstFrame() {
@@ -802,23 +825,7 @@ private fun applySubtitleStyleToView(
     sizeSp: Float,
     bgAlpha: Float
 ) {
-    subtitleView ?: return
-    subtitleView.visibility = android.view.View.VISIBLE
-    subtitleView.setApplyEmbeddedStyles(false)
-    subtitleView.setApplyEmbeddedFontSizes(false)
-    val bgAlphaInt = (bgAlpha.coerceIn(0f, 1f) * 255).toInt()
-    val bgColorInt = android.graphics.Color.argb(bgAlphaInt, 0, 0, 0)
-    subtitleView.setStyle(
-        androidx.media3.ui.CaptionStyleCompat(
-            colorLong.toInt(),
-            bgColorInt,
-            android.graphics.Color.TRANSPARENT,
-            androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-            android.graphics.Color.BLACK,
-            null
-        )
-    )
-    subtitleView.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sizeSp)
+    subtitleView?.visibility = android.view.View.GONE
 }
 
 @OptIn(UnstableApi::class)

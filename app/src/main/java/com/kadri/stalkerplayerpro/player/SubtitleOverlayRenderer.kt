@@ -17,10 +17,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kadri.stalkerplayerpro.data.model.SubtitleCue
 
+private val ASS_TAG_REGEX = Regex("""\{[^}]*\}""")
+private val HTML_TAG_REGEX = Regex("""<[^>]*>""")
+private val ASS_NEWLINE_REGEX = Regex("""\\[Nn]""")
+private val ASS_SPACE_REGEX = Regex("""\\h""")
+
+fun sanitizeSubtitleText(raw: String): String {
+    if (raw.isBlank()) return ""
+    return raw
+        .replace(ASS_NEWLINE_REGEX, "\n")
+        .replace(ASS_SPACE_REGEX, " ")
+        .replace(ASS_TAG_REGEX, "")
+        .replace(HTML_TAG_REGEX, "")
+        .lines()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .joinToString("\n")
+}
+
 /**
- * عارض الترجمة المستقل:
- * يطبّق إزاحة التوقيت (subtitleOffsetMs) حصرياً على طوابع الترجمة الزمنية
- * دون المساس بتدفق الفيديو أو الصوت إطلاقاً.
+ * عارض الترجمة الموحّد (للترجمة الخارجية والترجمة المدمجة النظيفة):
+ * يطبّق حجم الخط ولونه وخلفية النص من إعدادات التطبيق بدقة.
  */
 @Composable
 fun SubtitleOverlayRenderer(
@@ -30,16 +47,20 @@ fun SubtitleOverlayRenderer(
     textColor: Color,
     fontSizeSp: Float,
     bgAlpha: Float,
+    liveEmbeddedText: String = "",
     modifier: Modifier = Modifier
 ) {
-    if (cues.isEmpty()) return
-
-    val activeText = remember(cues, videoPositionMs, subtitleOffsetMs) {
-        val adjustedSubTime = videoPositionMs - subtitleOffsetMs
-        findActiveCueText(cues, adjustedSubTime)
+    val activeText = remember(cues, videoPositionMs, subtitleOffsetMs, liveEmbeddedText) {
+        val raw = if (cues.isNotEmpty()) {
+            val adjustedSubTime = videoPositionMs - subtitleOffsetMs
+            findActiveCueText(cues, adjustedSubTime).orEmpty()
+        } else {
+            liveEmbeddedText
+        }
+        sanitizeSubtitleText(raw)
     }
 
-    if (activeText.isNullOrBlank()) return
+    if (activeText.isBlank()) return
 
     Box(
         modifier = modifier

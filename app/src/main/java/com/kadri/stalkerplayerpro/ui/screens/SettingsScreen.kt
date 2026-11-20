@@ -253,6 +253,16 @@ fun SettingsScreen(
 
             item {
                 ClassicSettingsRow(
+                    icon = Icons.Default.Palette,
+                    title = if (isAr) "مظهر وحجم خط الترجمة" else "Subtitle Color & Font Size",
+                    valueText = "${settings.subFontSizeSp.roundToInt()}sp",
+                    isAr = isAr,
+                    onClick = { showSubtitleStyleDialog = true }
+                )
+            }
+
+            item {
+                ClassicSettingsRow(
                     icon = Icons.Default.Subtitles,
                     title = if (isAr) "حسابات الترجمة (OpenSubtitles / Subdl)" else "Subtitle API Accounts",
                     valueText = if (isAr) "إعداد المفاتيح" else "Configure Keys",
@@ -510,6 +520,18 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+        }
+
+        if (showSubtitleStyleDialog) {
+            SettingsSubtitleStyleDialog(
+                settings = settings,
+                isAr = isAr,
+                onSave = { c, s, a ->
+                    showSubtitleStyleDialog = false
+                    scope.launch { settingsStore.updateSubtitleStyle(c, s, a) }
+                },
+                onDismiss = { showSubtitleStyleDialog = false }
+            )
         }
 
         if (showAboutDialog) {
@@ -813,6 +835,28 @@ private fun SettingsSubtitleStyleDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(22f to (if (isAr) "صغير" else "Small"), 28f to (if (isAr) "متوسط" else "Medium"), 34f to (if (isAr) "كبير" else "Large"), 38f to (if (isAr) "كبير جداً" else "X-Large")).forEach { (presetSp, presetLabel) ->
+                val isPreset = kotlin.math.abs(fontSize - presetSp) < 1f
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = if (isPreset) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { fontSize = presetSp }
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = presetLabel,
+                        color = if (isPreset) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 text = if (isAr) "حجم الخط: ${fontSize.roundToInt()}sp" else "Font Size: ${fontSize.roundToInt()}sp",

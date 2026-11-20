@@ -416,6 +416,25 @@ fun TvPlayerScreen(
         )
     }
 
+    fun handleSmartPlayPause() {
+        if (controller.isPlaying) {
+            controller.togglePlayPause()
+        } else if (controller.needsStreamRecovery()) {
+            val resumeAt = if (currentRequest.contentType == "LIVE") 0L else controller.getLivePositionMs()
+            scope.launch {
+                val resolvedType = if (currentRequest.contentType == "LIVE") "itv" else "vod"
+                val freshUrl = resolvePlayableUrl(currentRequest.portal, currentRequest.streamCmdOrUrl, resolvedType)
+                if (freshUrl.isNotBlank()) {
+                    controller.playStream(freshUrl, resumeAt, isLive = (currentRequest.contentType == "LIVE"))
+                } else {
+                    controller.togglePlayPause()
+                }
+            }
+        } else {
+            controller.togglePlayPause()
+        }
+    }
+
     fun toggleCurrentFavorite() {
         scope.launch {
             if (isCurrentFavorite) {
@@ -681,14 +700,15 @@ fun TvPlayerScreen(
             }
         }
 
-        // 5. طبقة الترجمة الخارجية
+        // 5. طبقة الترجمة الموحدة (للترجمة الخارجية والمدمجة النظيفة)
         SubtitleOverlayRenderer(
             cues = subtitleCues,
             videoPositionMs = controller.currentPositionMs,
             subtitleOffsetMs = subtitleOffsetMs,
             textColor = Color(subColor),
             fontSizeSp = subSizeSp,
-            bgAlpha = subBgAlpha
+            bgAlpha = subBgAlpha,
+            liveEmbeddedText = controller.liveEmbeddedCueText
         )
 
         // 6. مؤشر التحميل المؤقت
@@ -1301,7 +1321,7 @@ private fun PlayerBottomControlBar(
                 onFocused = onUserInteract,
                 onClick = {
                     onUserInteract()
-                    controller.togglePlayPause()
+                    handleSmartPlayPause()
                 }
             )
 
