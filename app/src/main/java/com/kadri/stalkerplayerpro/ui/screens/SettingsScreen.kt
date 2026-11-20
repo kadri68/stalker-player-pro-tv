@@ -89,6 +89,7 @@ fun SettingsScreen(
     var showPinDialog by remember { mutableStateOf(false) }
     var showSubtitleAccountsDialog by remember { mutableStateOf(false) }
     var showSubtitleStyleDialog by remember { mutableStateOf(false) }
+    var showAssistantDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
     var showExportDialog by remember { mutableStateOf(false) }
@@ -98,7 +99,7 @@ fun SettingsScreen(
     var pendingImportRawJson by remember { mutableStateOf("") }
     var importInspection by remember { mutableStateOf<BackupInspectionResult?>(null) }
 
-    val anyDialog = showPinDialog || showSubtitleAccountsDialog || showAboutDialog ||
+    val anyDialog = showPinDialog || showSubtitleAccountsDialog || showAssistantDialog || showAboutDialog ||
             showExportDialog || showImportDialog
 
     val pendingExportJson = remember { mutableStateOf("") }
@@ -332,6 +333,16 @@ fun SettingsScreen(
 
             item {
                 ClassicSettingsRow(
+                    icon = Icons.Default.HelpOutline,
+                    title = if (isAr) "مساعد التطبيق ودليل الخدمات" else "App Assistant & Services Guide",
+                    valueText = if (isAr) "شرح الميزات" else "All Features",
+                    isAr = isAr,
+                    onClick = { showAssistantDialog = true }
+                )
+            }
+
+            item {
+                ClassicSettingsRow(
                     icon = Icons.Default.Info,
                     title = if (isAr) "حول التطبيق والمطور" else "About Application",
                     valueText = "v${com.kadri.stalkerplayerpro.BuildConfig.VERSION_NAME}",
@@ -531,6 +542,13 @@ fun SettingsScreen(
                     scope.launch { settingsStore.updateSubtitleStyle(c, s, a) }
                 },
                 onDismiss = { showSubtitleStyleDialog = false }
+            )
+        }
+
+        if (showAssistantDialog) {
+            AppServicesAssistantDialog(
+                isAr = isAr,
+                onDismiss = { showAssistantDialog = false }
             )
         }
 
@@ -993,5 +1011,69 @@ private fun ClassicSettingsRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp)
         )
+    }
+}
+
+@Composable
+private fun AppServicesAssistantDialog(
+    isAr: Boolean,
+    onDismiss: () -> Unit
+) {
+    val sections = if (isAr) listOf(
+        Triple("1. اللصق الذكي والمحلل الشامل (Smart Paste)", "انسخ أي نص يحتوي على روابط Stalker مع عناوين MAC متعددة، أو روابط Xtream Codes، أو روابط قوائم M3U، ثم اضغط (لصق ذكي). يقوم التطبيق باستخلاصها جميعاً، فحص الشغال منها تلقائياً، وحفظ الحسابات العاملة بضغطة واحدة.", Icons.Default.ContentPaste),
+        Triple("2. الاستيراد والتصدير متعدد الصيغ (QR / M3U / TXT)", "• QR Code: مسح رمز QR بالكاميرا أو من صورة في المعرض، وتوليد رمز QR لأي بوابة لمشاركتها فوراً بين الهاتف والتلفاز.\n• ملفات M3U و TXT: استيراد قوائم القنوات أو ملفات الحسابات المجمعة مباشرة.\n• النسخ الاحتياطي المخصص: تصدير واستيراد انتقائي للبوابات والمفضلة والترجمات المحفوظة والإعدادات.", Icons.Default.QrCodeScanner),
+        Triple("3. المشغل المزدوج الذكي واستئناف البث", "• يدعم محركين (ExoPlayer و LibVLC) مع التبديل التلقائي أو اليدوي لدعم كافة الصيغ والصوت المحيطي (AC3/DTS).\n• استئناف ذكي للبث: عند توقف الفيلم أو القناة فجأة، اضغط زر التشغيل وسيتم توليد رابط جلسة جديد واستئناف المشاهدة من نفس اللحظة.", Icons.Default.PlayCircleOutline),
+        Triple("4. إدارة الترجمة المتقدمة والحفظ التلقائي", "• البحث المباشر في OpenSubtitles و Subdl مع فك الضغط التلقائي.\n• حفظ ترجمة كل فيلم: تُحفظ الترجمة المعتمدة لكل فيلم أو حلقة تلقائياً وتُستعاد عند العودة.\n• توحيد التنسيق وتنظيف رموز ASS، مع ضبط الحجم واللون والخلفية ومزامنة التوقيت (+ / -).", Icons.Default.Subtitles),
+        Triple("5. اختصارات الريموت واللمس ووضع PiP", "• الريموت: اكتب رقم القناة مباشرة، اضغط (0) للعودة للقناة السابقة، (CH+/CH-) للتبديل، و(OK) لإظهار الشريط.\n• اللمس: اسحب عمودياً يمين الشاشة للصوت ويسارها للسطوع.\n• وضع PiP: تصغير الفيديو في نافذة عائمة أثناء تصفح التطبيق.", Icons.Default.SettingsRemote)
+    ) else listOf(
+        Triple("1. Smart Paste & Multi-Parser", "Paste any raw text containing Stalker portals + multiple MACs, Xtream Codes links, or M3U URLs. The parser extracts, tests live connectivity, and saves only working portals automatically.", Icons.Default.ContentPaste),
+        Triple("2. Multi-Format Import & Export (QR / M3U / TXT)", "• QR Code: Scan from camera or gallery, or generate a QR code for any portal to share between phone and TV.\n• M3U & TXT Files: Import playlists or bulk account text files directly.\n• Custom Backup: Selectively export and restore portals, favorites, saved subtitles, and settings.", Icons.Default.QrCodeScanner),
+        Triple("3. Dual Engine & Smart Stream Recovery", "• Seamless switching between ExoPlayer and LibVLC for full codec and surround audio (AC3/DTS) support.\n• Smart Resume: Pressing Play after an unexpected stream drop fetches a fresh session URL and resumes from the exact position.", Icons.Default.PlayCircleOutline),
+        Triple("4. Advanced Subtitles & Per-Movie Memory", "• Search OpenSubtitles & Subdl directly with automatic ZIP extraction.\n• Auto-Save per Movie: Approved subtitles are saved per movie/episode and restored automatically.\n• Unified clean styling with ASS tag stripping, preset sizes/colors, and +/- sync adjustment.", Icons.Default.Subtitles),
+        Triple("5. Remote Shortcuts, Touch Gestures & PiP", "• Remote: Direct channel number entry, (0) for previous channel, (CH+/CH-) to zap, and (OK) for controls.\n• Touch: Vertical swipe right for volume, left for brightness.\n• PiP Mode: Watch in a floating picture-in-picture window.", Icons.Default.SettingsRemote)
+    )
+    TvModalDialog(
+        title = if (isAr) "مساعد التطبيق ودليل الخدمات" else "App Assistant & Services Guide",
+        onDismiss = onDismiss,
+        maxWidth = 640.dp,
+        scrollableBody = true,
+        footer = {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Box(
+                    modifier = Modifier
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                            onClick = onDismiss
+                        )
+                        .padding(horizontal = 28.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = if (isAr) "فهمت / إغلاق" else "Got It / Close",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
+    ) { _ ->
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            sections.forEach { (heading, body, icon) ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                        .padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = heading, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(text = body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        }
     }
 }

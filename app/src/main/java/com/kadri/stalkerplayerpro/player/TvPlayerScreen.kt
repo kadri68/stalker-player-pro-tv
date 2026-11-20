@@ -804,6 +804,7 @@ fun TvPlayerScreen(
                     controller.releaseAll()
                     onExitPlayer()
                 },
+                onPlayPauseClick = { handleSmartPlayPause() },
                 onPrevChannel = {
                     controlInteractTick++
                     switchToChannelAtIndex(currentChannelIdx - 1)
@@ -1180,6 +1181,7 @@ private fun PlayerBottomControlBar(
     initialFocusRequester: FocusRequester,
     onUserInteract: () -> Unit,
     onBackClick: () -> Unit,
+    onPlayPauseClick: () -> Unit,
     onPrevChannel: () -> Unit,
     onNextChannel: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -1321,7 +1323,7 @@ private fun PlayerBottomControlBar(
                 onFocused = onUserInteract,
                 onClick = {
                     onUserInteract()
-                    handleSmartPlayPause()
+                    onPlayPauseClick()
                 }
             )
 
