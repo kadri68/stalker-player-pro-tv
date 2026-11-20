@@ -8,8 +8,12 @@ import java.io.File
 import java.security.MessageDigest
 
 data class SavedMovieSubtitle(
-    val cues: List<SubtitleCue>,
-    val offsetMs: Long = 0L
+    val mode: String = "EXTERNAL",
+    val cues: List<SubtitleCue> = emptyList(),
+    val offsetMs: Long = 0L,
+    val embeddedTrackIndex: Int = -1,
+    val embeddedTrackLabel: String = "",
+    val embeddedTrackLang: String = ""
 )
 
 object SubtitleCacheStore {
@@ -30,6 +34,7 @@ object SubtitleCacheStore {
         if (key.isBlank() || cues.isEmpty()) return
         runCatching {
             val root = JSONObject()
+            root.put("mode", "EXTERNAL")
             root.put("offsetMs", offsetMs)
             val arr = JSONArray()
             for (c in cues) {
@@ -44,26 +49,82 @@ object SubtitleCacheStore {
         }
     }
 
+    fun updateExternalOffset(context: Context, key: String, offsetMs: Long) {
+        if (key.isBlank()) return
+        runCatching {
+            val file = cacheFile(context, key)
+            if (!file.exists()) return
+            val root = JSONObject(file.readText(Charsets.UTF_8))
+            if (root.optString("mode", "EXTERNAL") == "EXTERNAL") {
+                root.put("offsetMs", offsetMs)
+                file.writeText(root.toString(), Charsets.UTF_8)
+            }
+        }
+    }
+
+    fun saveEmbeddedSelection(
+        context: Context,
+        key: String,
+        trackIndex: Int,
+        label: String,
+        lang: String
+    ) {
+        if (key.isBlank()) return
+        runCatching {
+            val root = JSONObject()
+            root.put("mode", "EMBEDDED")
+            root.put("embeddedTrackIndex", trackIndex)
+            root.put("embeddedTrackLabel", label)
+            root.put("embeddedTrackLang", lang)
+            cacheFile(context, key).writeText(root.toString(), Charsets.UTF_8)
+        }
+    }
+
+    fun saveSubtitlesOff(context: Context, key: String) {
+        if (key.isBlank()) return
+        runCatching {
+            val root = JSONObject()
+            root.put("mode", "OFF")
+            cacheFile(context, key).writeText(root.toString(), Charsets.UTF_8)
+        }
+    }
+
     fun loadSubtitle(context: Context, key: String): SavedMovieSubtitle? {
         if (key.isBlank()) return null
         return runCatching {
             val file = cacheFile(context, key)
             if (!file.exists()) return null
             val root = JSONObject(file.readText(Charsets.UTF_8))
-            val offsetMs = root.optLong("offsetMs", 0L)
-            val arr = root.optJSONArray("cues") ?: return null
-            val list = ArrayList<SubtitleCue>(arr.length())
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                list.add(
-                    SubtitleCue(
-                        startMs = obj.getLong("s"),
-                        endMs = obj.getLong("e"),
-                        text = obj.getString("t")
-                    )
+            val mode = root.optString("mode", "EXTERNAL")
+            when (mode) {
+                "OFF" -> SavedMovieSubtitle(mode = "OFF")
+                "EMBEDDED" -> SavedMovieSubtitle(
+                    mode = "EMBEDDED",
+                    embeddedTrackIndex = root.optInt("embeddedTrackIndex", -1),
+                    embeddedTrackLabel = root.optString("embeddedTrackLabel", ""),
+                    embeddedTrackLang = root.optString("embeddedTrackLang", "")
                 )
+                else -> {
+                    val offsetMs = root.optLong("offsetMs", 0L)
+                    val arr = root.optJSONArray("cues") ?: return null
+                    val list = ArrayList<SubtitleCue>(arr.length())
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(
+                            SubtitleCue(
+                                startMs = obj.getLong("s"),
+                                endMs = obj.getLong("e"),
+                                text = obj.getString("t")
+                            )
+                        )
+                    }
+                    if (list.isEmpty()) null else SavedMovieSubtitle(
+                        mode = "EXTERNAL",
+                        cues = list,
+                        offsetMs = offsetMs
+                    )
+                }
             }
-            if (list.isEmpty()) null else SavedMovieSubtitle(cues = list, offsetMs = offsetMs)
         }.getOrNull()
     }
 }

@@ -18,62 +18,124 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.zip.ZipInputStream
 
+data class OsLoginResult(
+    val success: Boolean,
+    val token: String = "",
+    val baseUrl: String = "api.opensubtitles.com",
+    val message: String = ""
+)
+
 object SubtitleRepository {
 
-    private const val OS_BASE = "https://api.opensubtitles.com/api/v1"
+    private const val DEFAULT_OS_HOST = "api.opensubtitles.com"
     private const val SUBDL_BASE = "https://api.subdl.com/api/v1/subtitles"
-    private const val USER_AGENT = "StalkerPlayerProTV v2.0"
+    private const val USER_AGENT = "StalkerPlayerProTV v2.0.4"
 
     @Volatile
     var lastSearchDiagnostic: String = ""
 
-    suspend fun loginOpenSubtitles(apiKey: String, username: String, password: String): String? =
-        withContext(Dispatchers.IO) {
-            if (apiKey.isBlank() || username.isBlank() || password.isBlank()) return@withContext null
-            runCatching {
-                val payload = JSONObject().apply {
-                    put("username", username.trim())
-                    put("password", password.trim())
-                }.toString()
+    private fun normalizeOsApiBase(baseUrl: String): String {
+        val cleanHost = baseUrl.trim()
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore("/")
+            .ifBlank { DEFAULT_OS_HOST }
+        return "https://$cleanHost/api/v1"
+    }
 
-                val req = Request.Builder()
-                    .url("$OS_BASE/login")
-                    .header("Api-Key", apiKey.trim())
-                    .header("User-Agent", USER_AGENT)
-                    .header("Accept", "application/json")
-                    .header("Content-Type", "application/json")
-                    .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
-
-                HttpClientProvider.client.newCall(req).execute().use { resp ->
-                    val body = resp.body?.string().orEmpty()
-                    if (!resp.isSuccessful) return@use null
-                    JSONObject(body).optString("token").takeIf { it.isNotBlank() }
-                }
-            }.getOrNull()
+    suspend fun loginOpenSubtitlesDetailed(
+        apiKey: String,
+        username: String,
+        password: String
+    ): OsLoginResult = withContext(Dispatchers.IO) {
+        val cleanKey = apiKey.trim()
+        val cleanUser = username.trim()
+        val cleanPass = password.trim()
+        if (cleanKey.isBlank()) {
+            return@withContext OsLoginResult(false, message = "يرجى إدخال OpenSubtitles API Key أولاً")
         }
+        if (cleanUser.isBlank() || cleanPass.isBlank()) {
+            return@withContext OsLoginResult(false, message = "يرجى إدخال اسم المستخدم وكلمة المرور")
+        }
+        runCatching {
+            val payload = JSONObject().apply {
+                put("username", cleanUser)
+                put("password", cleanPass)
+            }.toString()
+
+            val req = Request.Builder()
+                .url("https://$DEFAULT_OS_HOST/api/v1/login")
+                .header("Api-Key", cleanKey)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+
+            HttpClientProvider.client.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                if (!resp.isSuccessful) {
+                    val apiErr = json?.optString("message").orEmpty()
+                    val msg = when (resp.code) {
+                        401 -> "فشل الدخول (401): تأكد من اسم المستخدم وكلمة المرور أو API Key"
+                        403 -> "مرفوض (403): مفتاح API غير صالح أو محظور"
+                        429 -> "تم تجاوز حد المحاولات (429): انتظر ثوانٍ ثم أعد المحاولة"
+                        else -> "خطأ الخادم (${resp.code}) ${if (apiErr.isNotBlank()) ": $apiErr" else ""}"
+                    }
+                    return@use OsLoginResult(false, message = msg)
+                }
+                val token = json?.optString("token").orEmpty()
+                val returnedBase = json?.optString("base_url").orEmpty().ifBlank { DEFAULT_OS_HOST }
+                val userObj = json?.optJSONObject("user")
+                val isVip = userObj?.optBoolean("vip", false) ?: false
+                val allowedDownloads = userObj?.optInt("allowed_downloads", 0) ?: 0
+                if (token.isNotBlank()) {
+                    val tier = if (isVip) "VIP" else "User"
+                    val quotaTxt = if (allowedDownloads > 0) " • التحميلات المتاحة: $allowedDownloads" else ""
+                    OsLoginResult(
+                        success = true,
+                        token = token,
+                        baseUrl = returnedBase,
+                        message = "✓ تم تأكيد الدخول بنجاح ($tier)$quotaTxt"
+                    )
+                } else {
+                    OsLoginResult(false, message = "لم يتم استلام رمز الجلسة من OpenSubtitles")
+                }
+            }
+        }.getOrElse { err ->
+            OsLoginResult(false, message = "خطأ في الاتصال: ${err.message ?: "Network error"}")
+        }
+    }
+
+    suspend fun loginOpenSubtitles(apiKey: String, username: String, password: String): String? {
+        val res = loginOpenSubtitlesDetailed(apiKey, username, password)
+        return res.token.takeIf { res.success && it.isNotBlank() }
+    }
 
     suspend fun searchOpenSubtitles(
         apiKey: String,
         jwtToken: String,
         rawQuery: String,
         year: Int? = null,
-        languages: String = "ar,en"
+        languages: String = "ar,en",
+        baseUrl: String = DEFAULT_OS_HOST
     ): List<SubtitleSearchResult> = withContext(Dispatchers.IO) {
         val cleanKey = apiKey.trim()
         if (cleanKey.isBlank() || rawQuery.isBlank()) return@withContext emptyList()
         val normalizedQuery = rawQuery.trim().lowercase(Locale.US)
+        val osApiBase = normalizeOsApiBase(baseUrl)
 
-        val firstAttempt = executeOsSearch(cleanKey, jwtToken, normalizedQuery, year, languages)
+        val firstAttempt = executeOsSearch(osApiBase, cleanKey, jwtToken, normalizedQuery, year, languages)
         if (firstAttempt.isNotEmpty()) return@withContext firstAttempt
         if (year != null) {
-            val noYearAttempt = executeOsSearch(cleanKey, jwtToken, normalizedQuery, null, languages)
+            val noYearAttempt = executeOsSearch(osApiBase, cleanKey, jwtToken, normalizedQuery, null, languages)
             if (noYearAttempt.isNotEmpty()) return@withContext noYearAttempt
         }
         if (normalizedQuery.contains(":")) {
             val afterColon = normalizedQuery.substringAfterLast(":").trim()
             if (afterColon.length >= 3) {
-                val colonAttempt = executeOsSearch(cleanKey, jwtToken, afterColon, year, languages)
+                val colonAttempt = executeOsSearch(osApiBase, cleanKey, jwtToken, afterColon, year, languages)
                 if (colonAttempt.isNotEmpty()) return@withContext colonAttempt
             }
         }
@@ -81,6 +143,7 @@ object SubtitleRepository {
     }
 
     private fun executeOsSearch(
+        osApiBase: String,
         apiKey: String,
         jwtToken: String,
         lowerQuery: String,
@@ -91,7 +154,7 @@ object SubtitleRepository {
             val sortedLangs = languages.lowercase(Locale.US)
                 .split(",")
                 .map { it.trim() }
-                .filter { it.isNotEmpty() }
+                .filter { it.isNotEmpty() && it != "off" }
                 .sorted()
                 .joinToString(",")
                 .ifBlank { "ar,en" }
@@ -99,7 +162,7 @@ object SubtitleRepository {
             val encodedQuery = URLEncoder.encode(lowerQuery, "UTF-8")
             val encodedLangs = URLEncoder.encode(sortedLangs, "UTF-8")
             val fullUrl = buildString {
-                append("$OS_BASE/subtitles?languages=$encodedLangs&query=$encodedQuery")
+                append("$osApiBase/subtitles?languages=$encodedLangs&query=$encodedQuery")
                 if (year != null && year > 1900) {
                     append("&year=$year")
                 }
@@ -187,11 +250,19 @@ object SubtitleRepository {
         languages: String
     ): List<SubtitleSearchResult> {
         return runCatching {
+            val cleanLangs = languages.uppercase(Locale.US)
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && it != "OFF" }
+                .joinToString(",")
+                .ifBlank { "AR,EN" }
+
             val urlBuilder = SUBDL_BASE.toHttpUrl().newBuilder()
                 .addQueryParameter("api_key", apiKey)
                 .addQueryParameter("film_name", query)
-                .addQueryParameter("languages", languages.uppercase(Locale.US))
+                .addQueryParameter("languages", cleanLangs)
                 .addQueryParameter("subs_per_page", "30")
+                .addQueryParameter("unpack", "1")
             if (year != null && year > 1900) {
                 urlBuilder.addQueryParameter("year", year.toString())
             }
@@ -252,12 +323,27 @@ object SubtitleRepository {
     suspend fun downloadAndParseSubtitle(
         item: SubtitleSearchResult,
         osApiKey: String,
-        osJwtToken: String
+        osJwtToken: String,
+        baseUrl: String = DEFAULT_OS_HOST,
+        osUser: String = "",
+        osPass: String = ""
     ): List<SubtitleCue> = withContext(Dispatchers.IO) {
         runCatching {
             val downloadLink = if (item.source == "OpenSubtitles") {
-                resolveOpenSubtitlesDownloadLink(osApiKey.trim(), osJwtToken.trim(), item.fileId)
-                    ?: return@withContext emptyList()
+                val osApiBase = normalizeOsApiBase(baseUrl)
+                var link = resolveOpenSubtitlesDownloadLink(osApiBase, osApiKey.trim(), osJwtToken.trim(), item.fileId)
+                if (link == null && osUser.isNotBlank() && osPass.isNotBlank()) {
+                    val fresh = loginOpenSubtitlesDetailed(osApiKey, osUser, osPass)
+                    if (fresh.success && fresh.token.isNotBlank()) {
+                        link = resolveOpenSubtitlesDownloadLink(
+                            normalizeOsApiBase(fresh.baseUrl),
+                            osApiKey.trim(),
+                            fresh.token,
+                            item.fileId
+                        )
+                    }
+                }
+                link ?: return@withContext emptyList()
             } else {
                 item.downloadUrl
             }
@@ -283,13 +369,18 @@ object SubtitleRepository {
         }.getOrDefault(emptyList())
     }
 
-    private fun resolveOpenSubtitlesDownloadLink(apiKey: String, jwtToken: String, fileId: String): String? {
+    private fun resolveOpenSubtitlesDownloadLink(
+        osApiBase: String,
+        apiKey: String,
+        jwtToken: String,
+        fileId: String
+    ): String? {
         val payload = JSONObject().apply {
             put("file_id", fileId.toIntOrNull() ?: fileId)
         }.toString()
 
         val reqBuilder = Request.Builder()
-            .url("$OS_BASE/download")
+            .url("$osApiBase/download")
             .header("Api-Key", apiKey)
             .header("User-Agent", USER_AGENT)
             .header("Accept", "application/json")
@@ -302,6 +393,10 @@ object SubtitleRepository {
 
         return HttpClientProvider.client.newCall(reqBuilder.build()).execute().use { resp ->
             val body = resp.body?.string().orEmpty()
+            if (!resp.isSuccessful) {
+                lastSearchDiagnostic = "OpenSubtitles Download HTTP ${resp.code}"
+                return@use null
+            }
             JSONObject(body).optString("link").takeIf { it.isNotBlank() }
         }
     }

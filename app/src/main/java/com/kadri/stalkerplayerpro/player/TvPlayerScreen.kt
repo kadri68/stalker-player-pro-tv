@@ -241,6 +241,45 @@ fun TvPlayerScreen(
         }
     }
 
+    var pendingRestoreEmbeddedSub by remember { mutableStateOf<SavedMovieSubtitle?>(null) }
+
+    LaunchedEffect(controller.embeddedSubtitleTracks, pendingRestoreEmbeddedSub) {
+        val pending = pendingRestoreEmbeddedSub ?: return@LaunchedEffect
+        val tracks = controller.embeddedSubtitleTracks
+        if (tracks.isEmpty()) return@LaunchedEffect
+        if (pending.mode == "OFF") {
+            controller.selectEmbeddedSubtitleTrack(null)
+            pendingRestoreEmbeddedSub = null
+        } else if (pending.mode == "EMBEDDED") {
+            val target = tracks.firstOrNull { it.label == pending.embeddedTrackLabel && pending.embeddedTrackLabel.isNotBlank() }
+                ?: tracks.firstOrNull { it.language.equals(pending.embeddedTrackLang, ignoreCase = true) && pending.embeddedTrackLang.isNotBlank() }
+                ?: tracks.getOrNull(pending.embeddedTrackIndex)
+            if (target != null) {
+                subtitleCues = emptyList()
+                controller.hasExternalSubtitlesActive = false
+                controller.selectEmbeddedSubtitleTrack(target)
+                Toast.makeText(
+                    context,
+                    if (isAr) "تم استئناف الترجمة المدمجة: ${target.label}" else "Resumed embedded subtitle: ${target.label}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            pendingRestoreEmbeddedSub = null
+        }
+    }
+
+    LaunchedEffect(subtitleOffsetMs) {
+        if (currentRequest.contentType != "LIVE" && subtitleCues.isNotEmpty()) {
+            val subCacheKey = SubtitleCacheStore.buildKey(
+                currentRequest.portal.id,
+                currentRequest.contentType,
+                currentRequest.itemId,
+                currentRequest.title
+            )
+            SubtitleCacheStore.updateExternalOffset(context, subCacheKey, subtitleOffsetMs)
+        }
+    }
+
     LaunchedEffect(currentRequest.itemId, currentRequest.streamCmdOrUrl) {
         val subCacheKey = SubtitleCacheStore.buildKey(
             currentRequest.portal.id,
@@ -252,8 +291,9 @@ fun TvPlayerScreen(
             SubtitleCacheStore.loadSubtitle(context, subCacheKey)
         } else null
 
-        subtitleCues = savedSub?.cues ?: emptyList()
-        subtitleOffsetMs = savedSub?.offsetMs ?: 0L
+        subtitleCues = if (savedSub?.mode == "EXTERNAL") savedSub.cues else emptyList()
+        subtitleOffsetMs = if (savedSub?.mode == "EXTERNAL") savedSub.offsetMs else 0L
+        pendingRestoreEmbeddedSub = if (savedSub?.mode == "EMBEDDED" || savedSub?.mode == "OFF") savedSub else null
         showControls = true
         controlInteractTick++
 
@@ -261,14 +301,17 @@ fun TvPlayerScreen(
         val playableUrl = resolvePlayableUrl(currentRequest.portal, currentRequest.streamCmdOrUrl, resolvedType)
         controller.playStream(playableUrl, currentRequest.resumePositionMs, isLive = (currentRequest.contentType == "LIVE"))
 
-        if (savedSub != null) {
+        if (savedSub != null && savedSub.mode == "EXTERNAL" && savedSub.cues.isNotEmpty()) {
             controller.hasExternalSubtitlesActive = true
             controller.selectEmbeddedSubtitleTrack(null)
             Toast.makeText(
                 context,
-                if (isAr) "تم استعادة الترجمة المحفوظة (${savedSub.cues.size} سطر)" else "Restored saved subtitle (${savedSub.cues.size} cues)",
+                if (isAr) "تم استئناف الترجمة المحفوظة (${savedSub.cues.size} سطر)" else "Resumed saved subtitle (${savedSub.cues.size} cues)",
                 Toast.LENGTH_SHORT
             ).show()
+        } else if (savedSub?.mode == "OFF") {
+            controller.hasExternalSubtitlesActive = true
+            controller.selectEmbeddedSubtitleTrack(null)
         }
 
         // تسجيل القناة أو الفيلم في سجل المشاهدة للوصول السريع
@@ -1073,7 +1116,12 @@ fun TvPlayerScreen(
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (noneSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
                                     onClick = {
+                                        subtitleCues = emptyList()
                                         controller.selectEmbeddedSubtitleTrack(null)
+                                        if (currentRequest.contentType != "LIVE") {
+                                            val k = SubtitleCacheStore.buildKey(currentRequest.portal.id, currentRequest.contentType, currentRequest.itemId, currentRequest.title)
+                                            SubtitleCacheStore.saveSubtitlesOff(context, k)
+                                        }
                                         showEmbeddedSubtitlesDialog = false
                                     }
                                 )
@@ -1086,7 +1134,7 @@ fun TvPlayerScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        controller.embeddedSubtitleTracks.forEach { track ->
+                        controller.embeddedSubtitleTracks.forEachIndexed { tIdx, track ->
                             val isTrackActive = track.isSelected && !controller.hasExternalSubtitlesActive
                             Row(
                                 modifier = Modifier
@@ -1099,6 +1147,10 @@ fun TvPlayerScreen(
                                             subtitleOffsetMs = 0L
                                             controller.hasExternalSubtitlesActive = false
                                             controller.selectEmbeddedSubtitleTrack(track)
+                                            if (currentRequest.contentType != "LIVE") {
+                                                val k = SubtitleCacheStore.buildKey(currentRequest.portal.id, currentRequest.contentType, currentRequest.itemId, currentRequest.title)
+                                                SubtitleCacheStore.saveEmbeddedSelection(context, k, tIdx, track.label, track.language)
+                                            }
                                             Toast.makeText(
                                                 context,
                                                 if (isAr) "تم تفعيل الترجمة المدمجة: ${track.label}" else "Embedded Subtitle: ${track.label}",
@@ -1701,12 +1753,18 @@ private fun SubtitleSearchDialog(
             }
 
             var jwt = settings.openSubJwtToken
+            var activeBaseUrl = settings.openSubBaseUrl
             if (jwt.isBlank() && settings.openSubApiKey.isNotBlank() && settings.openSubUsername.isNotBlank()) {
-                jwt = SubtitleRepository.loginOpenSubtitles(
+                val loginRes = SubtitleRepository.loginOpenSubtitlesDetailed(
                     settings.openSubApiKey,
                     settings.openSubUsername,
                     settings.openSubPassword
-                ).orEmpty()
+                )
+                if (loginRes.success && loginRes.token.isNotBlank()) {
+                    jwt = loginRes.token
+                    activeBaseUrl = loginRes.baseUrl
+                    settingsStore.updateOpenSubSession(loginRes.token, loginRes.baseUrl)
+                }
             }
 
             val osList = if (settings.subtitleEngine == "SUBDL") emptyList() else SubtitleRepository.searchOpenSubtitles(
@@ -1714,7 +1772,8 @@ private fun SubtitleSearchDialog(
                 jwtToken = jwt,
                 rawQuery = cleanTitle,
                 year = extractedYear,
-                languages = selectedSubLang
+                languages = selectedSubLang,
+                baseUrl = activeBaseUrl
             )
             val subdlList = if (settings.subtitleEngine == "OPENSUBTITLES") emptyList() else SubtitleRepository.searchSubdl(
                 apiKey = settings.subdlApiKey,
@@ -2018,8 +2077,35 @@ private fun SubtitleAppearanceDialog(
             color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(modifier = Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = if (isAr) "الحجم الحالي: ${selectedSize.toInt()}sp (حتى 90sp)" else "Current Size: ${selectedSize.toInt()}sp (up to 90sp)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.weight(1f)
+            )
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { selectedSize = (selectedSize - 4f).coerceAtLeast(18f) }
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) { LtrText("A-", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { selectedSize = (selectedSize + 4f).coerceAtMost(90f) }
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) { LtrText("A+", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(18f to "18sp", 22f to "22sp", 26f to "26sp", 30f to "30sp", 36f to "36sp").forEach { (spVal, lbl) ->
+            listOf(24f to "24sp", 36f to "36sp", 48f to "48sp", 64f to "64sp", 78f to "78sp", 90f to "90sp").forEach { (spVal, lbl) ->
                 val active = selectedSize == spVal
                 Box(
                     modifier = Modifier

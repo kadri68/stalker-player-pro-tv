@@ -400,10 +400,12 @@ class DualPlayerController(
 
         val vlcRgb = (subTextColor and 0x00FFFFFFL).toInt()
         val vlcRelSize = when {
-            subFontSizeSp >= 36f -> 12
-            subFontSizeSp >= 32f -> 14
-            subFontSizeSp >= 26f -> 17
-            else -> 21
+            subFontSizeSp >= 80f -> 7
+            subFontSizeSp >= 66f -> 8
+            subFontSizeSp >= 52f -> 10
+            subFontSizeSp >= 40f -> 12
+            subFontSizeSp >= 30f -> 15
+            else -> 19
         }
         val vlcBgAlpha = (subBgAlpha.coerceIn(0f, 1f) * 255f).toInt()
         val vlc = libVlc ?: LibVLC(

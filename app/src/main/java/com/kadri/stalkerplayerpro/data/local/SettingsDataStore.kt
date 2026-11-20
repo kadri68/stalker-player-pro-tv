@@ -22,12 +22,12 @@ data class TvUserSettings(
     val autoPipEnabled: Boolean = true,
     val preferredAudioLang: String = "en",
     val preferredSubtitleLang: String = "ar",
-    // إعدادات الترجمة الخارجية ومحرك البحث المفضل ("BOTH", "OPENSUBTITLES", "SUBDL")
     val subtitleEngine: String = "BOTH",
     val openSubApiKey: String = "",
     val openSubUsername: String = "",
     val openSubPassword: String = "",
     val openSubJwtToken: String = "",
+    val openSubBaseUrl: String = "api.opensubtitles.com",
     val subdlApiKey: String = "",
     val subTextColor: Long = 0xFFFFD600,
     val subFontSizeSp: Float = 38f,
@@ -52,6 +52,7 @@ class SettingsDataStore(private val context: Context) {
         val KEY_OS_USER = stringPreferencesKey("os_user")
         val KEY_OS_PASS = stringPreferencesKey("os_pass")
         val KEY_OS_TOKEN = stringPreferencesKey("os_token")
+        val KEY_OS_BASE_URL = stringPreferencesKey("os_base_url")
         val KEY_SUBDL_API_KEY = stringPreferencesKey("subdl_api_key")
 
         val KEY_SUB_COLOR = longPreferencesKey("sub_color")
@@ -75,6 +76,7 @@ class SettingsDataStore(private val context: Context) {
             openSubUsername = prefs[KEY_OS_USER] ?: "",
             openSubPassword = prefs[KEY_OS_PASS] ?: "",
             openSubJwtToken = prefs[KEY_OS_TOKEN] ?: "",
+            openSubBaseUrl = prefs[KEY_OS_BASE_URL] ?: "api.opensubtitles.com",
             subdlApiKey = prefs[KEY_SUBDL_API_KEY] ?: "",
             subTextColor = prefs[KEY_SUB_COLOR] ?: 0xFFFFD600,
             subFontSizeSp = prefs[KEY_SUB_SIZE] ?: 38f,
@@ -122,18 +124,27 @@ class SettingsDataStore(private val context: Context) {
         context.dataStore.edit { it[KEY_SUBTITLE_ENGINE] = engine }
     }
 
+    suspend fun updateOpenSubSession(token: String, baseUrl: String) {
+        context.dataStore.edit {
+            it[KEY_OS_TOKEN] = token
+            if (baseUrl.isNotBlank()) it[KEY_OS_BASE_URL] = baseUrl
+        }
+    }
+
     suspend fun updateSubtitleAccounts(
         osApiKey: String,
         osUser: String,
         osPass: String,
         osToken: String,
-        subdlApiKey: String
+        subdlApiKey: String,
+        osBaseUrl: String = "api.opensubtitles.com"
     ) {
         context.dataStore.edit {
             it[KEY_OS_API_KEY] = osApiKey
             it[KEY_OS_USER] = osUser
             it[KEY_OS_PASS] = osPass
             it[KEY_OS_TOKEN] = osToken
+            it[KEY_OS_BASE_URL] = osBaseUrl.ifBlank { "api.opensubtitles.com" }
             it[KEY_SUBDL_API_KEY] = subdlApiKey
         }
     }
@@ -143,6 +154,36 @@ class SettingsDataStore(private val context: Context) {
             it[KEY_SUB_COLOR] = color
             it[KEY_SUB_SIZE] = sizeSp
             it[KEY_SUB_BG_ALPHA] = bgAlpha
+        }
+    }
+
+    suspend fun updateUnifiedAudioSubtitleSettings(
+        audioLang: String,
+        subtitleLang: String,
+        subtitleEngine: String,
+        osApiKey: String,
+        osUser: String,
+        osPass: String,
+        osToken: String,
+        osBaseUrl: String,
+        subdlApiKey: String,
+        subColor: Long,
+        subSizeSp: Float,
+        subBgAlpha: Float
+    ) {
+        context.dataStore.edit {
+            it[KEY_AUDIO_LANG] = audioLang
+            it[KEY_SUBTITLE_LANG] = subtitleLang
+            it[KEY_SUBTITLE_ENGINE] = subtitleEngine
+            it[KEY_OS_API_KEY] = osApiKey
+            it[KEY_OS_USER] = osUser
+            it[KEY_OS_PASS] = osPass
+            it[KEY_OS_TOKEN] = osToken
+            it[KEY_OS_BASE_URL] = osBaseUrl.ifBlank { "api.opensubtitles.com" }
+            it[KEY_SUBDL_API_KEY] = subdlApiKey
+            it[KEY_SUB_COLOR] = subColor
+            it[KEY_SUB_SIZE] = subSizeSp
+            it[KEY_SUB_BG_ALPHA] = subBgAlpha
         }
     }
 }

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -87,8 +88,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
 
     var showPinDialog by remember { mutableStateOf(false) }
-    var showSubtitleAccountsDialog by remember { mutableStateOf(false) }
-    var showSubtitleStyleDialog by remember { mutableStateOf(false) }
+    var showUnifiedAudioSubDialog by remember { mutableStateOf(false) }
     var showAssistantDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
@@ -99,7 +99,7 @@ fun SettingsScreen(
     var pendingImportRawJson by remember { mutableStateOf("") }
     var importInspection by remember { mutableStateOf<BackupInspectionResult?>(null) }
 
-    val anyDialog = showPinDialog || showSubtitleAccountsDialog || showAssistantDialog || showAboutDialog ||
+    val anyDialog = showPinDialog || showUnifiedAudioSubDialog || showAssistantDialog || showAboutDialog ||
             showExportDialog || showImportDialog
 
     val pendingExportJson = remember { mutableStateOf("") }
@@ -236,39 +236,14 @@ fun SettingsScreen(
             }
 
             item {
-                ClassicSettingsRow(
-                    icon = Icons.Default.Search,
-                    title = if (isAr) "محرك البحث عن الترجمة" else "Subtitle Search Engine",
-                    valueText = subtitleEngineLabel,
-                    isAr = isAr,
-                    onClick = {
-                        val nextEngine = when (settings.subtitleEngine) {
-                            "BOTH" -> "OPENSUBTITLES"
-                            "OPENSUBTITLES" -> "SUBDL"
-                            else -> "BOTH"
-                        }
-                        scope.launch { settingsStore.updateSubtitleEngine(nextEngine) }
-                    }
-                )
-            }
-
-            item {
-                ClassicSettingsRow(
-                    icon = Icons.Default.Palette,
-                    title = if (isAr) "مظهر وحجم خط الترجمة" else "Subtitle Color & Font Size",
-                    valueText = "${settings.subFontSizeSp.roundToInt()}sp",
-                    isAr = isAr,
-                    onClick = { showSubtitleStyleDialog = true }
-                )
-            }
-
-            item {
+                val audCode = settings.preferredAudioLang.uppercase()
+                val subCode = settings.preferredSubtitleLang.uppercase()
                 ClassicSettingsRow(
                     icon = Icons.Default.Subtitles,
-                    title = if (isAr) "حسابات الترجمة (OpenSubtitles / Subdl)" else "Subtitle API Accounts",
-                    valueText = if (isAr) "إعداد المفاتيح" else "Configure Keys",
+                    title = if (isAr) "إعدادات الصوت والترجمة والحسابات" else "Audio, Subtitles & Accounts",
+                    valueText = if (isAr) "الصوت: $audCode | الترجمة: $subCode | ${settings.subFontSizeSp.roundToInt()}sp" else "Audio: $audCode | Sub: $subCode | ${settings.subFontSizeSp.roundToInt()}sp",
                     isAr = isAr,
-                    onClick = { showSubtitleAccountsDialog = true }
+                    onClick = { showUnifiedAudioSubDialog = true }
                 )
             }
 
@@ -428,120 +403,12 @@ fun SettingsScreen(
             )
         }
 
-        if (showSubtitleStyleDialog) {
-        SettingsSubtitleStyleDialog(
-            settings = settings,
-            isAr = isAr,
-            onSave = { color, size, alpha ->
-                scope.launch { settingsStore.updateSubtitleStyle(color, size, alpha) }
-                showSubtitleStyleDialog = false
-                Toast.makeText(
-                    context,
-                    if (isAr) "تم حفظ إعدادات مظهر الترجمة" else "Subtitle appearance saved",
-                    Toast.LENGTH_SHORT
-                ).show()
-            },
-            onDismiss = { showSubtitleStyleDialog = false }
-        )
-    }
-
-    if (showSubtitleAccountsDialog) {
-            var osKey by remember { mutableStateOf(settings.openSubApiKey) }
-            var osUser by remember { mutableStateOf(settings.openSubUsername) }
-            var osPass by remember { mutableStateOf(settings.openSubPassword) }
-            var subdlKey by remember { mutableStateOf(settings.subdlApiKey) }
-
-            TvModalDialog(
-                title = if (isAr) "حسابات الترجمة الخارجية" else "External Subtitle Accounts",
-                onDismiss = { showSubtitleAccountsDialog = false },
-                maxWidth = 580.dp,
-                scrollableBody = true,
-                footer = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .tvFocusItem(
-                                    shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    onClick = { showSubtitleAccountsDialog = false }
-                                )
-                                .padding(horizontal = 18.dp, vertical = 9.dp)
-                        ) {
-                            Text(if (isAr) "إلغاء" else "Cancel", color = MaterialTheme.colorScheme.onSurface)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .tvFocusItem(
-                                    shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                                    onClick = {
-                                        scope.launch {
-                                            settingsStore.updateSubtitleAccounts(
-                                                osApiKey = osKey.trim(),
-                                                osUser = osUser.trim(),
-                                                osPass = osPass.trim(),
-                                                osToken = "",
-                                                subdlApiKey = subdlKey.trim()
-                                            )
-                                        }
-                                        showSubtitleAccountsDialog = false
-                                        Toast.makeText(context, if (isAr) "تم الحفظ" else "Saved", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                                .padding(horizontal = 24.dp, vertical = 9.dp)
-                        ) {
-                            Text(if (isAr) "حفظ" else "Save", color = MaterialTheme.colorScheme.onPrimary)
-                        }
-                    }
-                }
-            ) { _ ->
-                OutlinedTextField(
-                    value = osKey,
-                    onValueChange = { osKey = it },
-                    label = { Text("OpenSubtitles.com API Key") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = osUser,
-                        onValueChange = { osUser = it },
-                        label = { Text("OpenSubtitles Username") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = osPass,
-                        onValueChange = { osPass = it },
-                        label = { Text("OpenSubtitles Password") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = subdlKey,
-                    onValueChange = { subdlKey = it },
-                    label = { Text("Subdl.com API Key") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
-        if (showSubtitleStyleDialog) {
-            SettingsSubtitleStyleDialog(
+        if (showUnifiedAudioSubDialog) {
+            UnifiedAudioSubtitleSettingsDialog(
                 settings = settings,
+                settingsStore = settingsStore,
                 isAr = isAr,
-                onSave = { c, s, a ->
-                    showSubtitleStyleDialog = false
-                    scope.launch { settingsStore.updateSubtitleStyle(c, s, a) }
-                },
-                onDismiss = { showSubtitleStyleDialog = false }
+                onDismiss = { showUnifiedAudioSubDialog = false }
             )
         }
 
@@ -800,15 +667,62 @@ private fun BackupCheckRow(
 }
 
 @Composable
-private fun SettingsSubtitleStyleDialog(
+private fun UnifiedAudioSubtitleSettingsDialog(
     settings: TvUserSettings,
+    settingsStore: SettingsDataStore,
     isAr: Boolean,
-    onSave: (Long, Float, Float) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var selectedAudioLang by remember { mutableStateOf(settings.preferredAudioLang) }
+    var selectedSubLang by remember { mutableStateOf(settings.preferredSubtitleLang) }
+    var selectedEngine by remember { mutableStateOf(settings.subtitleEngine) }
+
+    var osKey by remember { mutableStateOf(settings.openSubApiKey) }
+    var osUser by remember { mutableStateOf(settings.openSubUsername) }
+    var osPass by remember { mutableStateOf(settings.openSubPassword) }
+    var osToken by remember { mutableStateOf(settings.openSubJwtToken) }
+    var osBaseUrl by remember { mutableStateOf(settings.openSubBaseUrl) }
+    var isVerifyingLogin by remember { mutableStateOf(false) }
+    var loginStatusMsg by remember {
+        mutableStateOf(
+            if (settings.openSubJwtToken.isNotBlank()) {
+                if (isAr) "✓ الجلسة نشطة ومسجلة الدخول" else "✓ Active logged-in session"
+            } else ""
+        )
+    }
+    var loginStatusSuccess by remember { mutableStateOf(settings.openSubJwtToken.isNotBlank()) }
+    var subdlKey by remember { mutableStateOf(settings.subdlApiKey) }
+
     var selectedColor by remember { mutableStateOf(settings.subTextColor) }
     var selectedSize by remember { mutableStateOf(settings.subFontSizeSp) }
     var selectedAlpha by remember { mutableStateOf(settings.subBgAlpha) }
+
+    val audioLangOptions = listOf(
+        "auto" to (if (isAr) "تلقائي" else "Auto"),
+        "ar" to (if (isAr) "العربية" else "Arabic"),
+        "en" to "English",
+        "fr" to "Français",
+        "tr" to "Türkçe",
+        "es" to "Español"
+    )
+
+    val subLangOptions = listOf(
+        "ar" to (if (isAr) "العربية" else "Arabic"),
+        "en" to "English",
+        "fr" to "Français",
+        "tr" to "Türkçe",
+        "es" to "Español",
+        "off" to (if (isAr) "إيقاف" else "Off")
+    )
+
+    val engineOptions = listOf(
+        "BOTH" to (if (isAr) "كلاهما (Both)" else "Both"),
+        "OPENSUBTITLES" to "OpenSubtitles",
+        "SUBDL" to "Subdl"
+    )
 
     val colorChoices = listOf(
         0xFFFFFFFFL to (if (isAr) "أبيض" else "White"),
@@ -818,10 +732,19 @@ private fun SettingsSubtitleStyleDialog(
         0xFFFF9100L to (if (isAr) "برتقالي" else "Orange")
     )
 
+    val sizePresets = listOf(
+        24f to "24sp",
+        36f to "36sp",
+        48f to "48sp",
+        64f to "64sp",
+        78f to "78sp",
+        90f to "90sp"
+    )
+
     TvModalDialog(
-        title = if (isAr) "تخصيص لون وحجم الترجمة" else "Customize Subtitle Color & Size",
+        title = if (isAr) "إعدادات الصوت والترجمة والحسابات" else "Audio, Subtitles & Accounts",
         onDismiss = onDismiss,
-        maxWidth = 560.dp,
+        maxWidth = 640.dp,
         scrollableBody = true,
         footer = {
             Row(
@@ -849,7 +772,28 @@ private fun SettingsSubtitleStyleDialog(
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                             onClick = {
-                                onSave(selectedColor, selectedSize, selectedAlpha)
+                                scope.launch {
+                                    settingsStore.updateUnifiedAudioSubtitleSettings(
+                                        audioLang = selectedAudioLang,
+                                        subtitleLang = selectedSubLang,
+                                        subtitleEngine = selectedEngine,
+                                        osApiKey = osKey.trim(),
+                                        osUser = osUser.trim(),
+                                        osPass = osPass.trim(),
+                                        osToken = osToken.trim(),
+                                        osBaseUrl = osBaseUrl.trim(),
+                                        subdlApiKey = subdlKey.trim(),
+                                        subColor = selectedColor,
+                                        subSizeSp = selectedSize,
+                                        subBgAlpha = selectedAlpha
+                                    )
+                                }
+                                Toast.makeText(
+                                    context,
+                                    if (isAr) "تم حفظ جميع إعدادات الصوت والترجمة" else "All audio & subtitle settings saved",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                onDismiss()
                             }
                         )
                         .padding(horizontal = 24.dp, vertical = 9.dp)
@@ -864,19 +808,222 @@ private fun SettingsSubtitleStyleDialog(
         }
     ) { firstRequester ->
         Text(
-            text = if (isAr) "لون النص:" else "Text Color:",
+            text = if (isAr) "1. لغة الصوت المدمج المفضلة:" else "1. Preferred Embedded Audio Language:",
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            colorChoices.forEachIndexed { idx, (hex, label) ->
-                val active = selectedColor == hex
+            audioLangOptions.forEachIndexed { idx, (code, label) ->
+                val active = selectedAudioLang.equals(code, ignoreCase = true)
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .tvFocusItem(
                             focusRequester = if (idx == 0) firstRequester else null,
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { selectedAudioLang = code }
+                        )
+                        .padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = if (isAr) "2. لغة الترجمة الموحدة (المدمجة والخارجية):" else "2. Unified Subtitle Language (Embedded & External):",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            subLangOptions.forEach { (code, label) ->
+                val active = selectedSubLang.equals(code, ignoreCase = true)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { selectedSubLang = code }
+                        )
+                        .padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = if (isAr) "3. محرك البحث عن الترجمة:" else "3. Subtitle Search Engine:",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            engineOptions.forEach { (engCode, engLabel) ->
+                val active = selectedEngine.equals(engCode, ignoreCase = true)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .tvFocusItem(
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { selectedEngine = engCode }
+                        )
+                        .padding(vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = engLabel,
+                        color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = if (isAr) "4. حسابات الترجمة (OpenSubtitles / Subdl):" else "4. Subtitle Accounts (OpenSubtitles / Subdl):",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        OutlinedTextField(
+            value = osKey,
+            onValueChange = { osKey = it },
+            label = { Text("OpenSubtitles.com API Key") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = osUser,
+                onValueChange = { osUser = it },
+                label = { Text("OpenSubtitles Username") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = osPass,
+                onValueChange = { osPass = it },
+                label = { Text("OpenSubtitles Password") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = Color(0xFF00897B),
+                        onClick = {
+                            if (!isVerifyingLogin) {
+                                scope.launch {
+                                    isVerifyingLogin = true
+                                    loginStatusMsg = if (isAr) "جارٍ تأكيد الدخول إلى OpenSubtitles..." else "Verifying OpenSubtitles login..."
+                                    val res = com.kadri.stalkerplayerpro.data.network.SubtitleRepository.loginOpenSubtitlesDetailed(
+                                        apiKey = osKey,
+                                        username = osUser,
+                                        password = osPass
+                                    )
+                                    loginStatusSuccess = res.success
+                                    loginStatusMsg = res.message
+                                    if (res.success && res.token.isNotBlank()) {
+                                        osToken = res.token
+                                        osBaseUrl = res.baseUrl
+                                        settingsStore.updateOpenSubSession(res.token, res.baseUrl)
+                                    }
+                                    isVerifyingLogin = false
+                                }
+                            }
+                        }
+                    )
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (isVerifyingLogin) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    }
+                    Text(
+                        text = if (isAr) "تأكيد الدخول OpenSubtitles" else "Confirm OpenSubtitles Login",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            if (loginStatusMsg.isNotBlank()) {
+                Text(
+                    text = loginStatusMsg,
+                    color = if (loginStatusSuccess) Color(0xFF00E676) else Color(0xFFFFB300),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = subdlKey,
+            onValueChange = { subdlKey = it },
+            label = { Text("Subdl.com API Key") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = if (isAr) "5. لون نص الترجمة:" else "5. Subtitle Text Color:",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            colorChoices.forEach { (hex, label) ->
+                val active = selectedColor == hex
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .tvFocusItem(
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedColor = hex }
@@ -888,22 +1035,50 @@ private fun SettingsSubtitleStyleDialog(
                         text = label,
                         color = if (active) MaterialTheme.colorScheme.onPrimary else Color(hex),
                         style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(
-            text = if (isAr) "حجم الخط:" else "Font Size:",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = if (isAr) "6. حجم الخط (${selectedSize.roundToInt()}sp حتى 90sp):" else "6. Font Size (${selectedSize.roundToInt()}sp up to 90sp):",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { selectedSize = (selectedSize - 4f).coerceAtLeast(18f) }
+                    )
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) { LtrText("A-", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { selectedSize = (selectedSize + 4f).coerceAtMost(90f) }
+                    )
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) { LtrText("A+", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
+        }
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(18f to "18sp", 22f to "22sp", 26f to "26sp", 30f to "30sp", 36f to "36sp", 42f to "42sp").forEach { (spVal, lbl) ->
-                val active = kotlin.math.abs(selectedSize - spVal) < 1f
+            sizePresets.forEach { (spVal, lbl) ->
+                val active = kotlin.math.abs(selectedSize - spVal) < 2f
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -918,17 +1093,20 @@ private fun SettingsSubtitleStyleDialog(
                     LtrText(
                         text = lbl,
                         color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.labelMedium
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
         Text(
-            text = if (isAr) "شفافية الخلفية:" else "Background Opacity:",
+            text = if (isAr) "7. شفافية خلفية الترجمة:" else "7. Background Opacity:",
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -955,6 +1133,7 @@ private fun SettingsSubtitleStyleDialog(
         }
     }
 }
+
 
 
 @Composable
