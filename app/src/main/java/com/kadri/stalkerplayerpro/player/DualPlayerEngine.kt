@@ -653,9 +653,9 @@ class DualPlayerController(
                 val st = mp?.playerState ?: -1
                 val needsReconnect = mp == null ||
                     !wasManualPause ||
-                    st == org.videolan.libvlc.Media.State.Stopped ||
-                    st == org.videolan.libvlc.Media.State.Ended ||
-                    st == org.videolan.libvlc.Media.State.Error
+                    st == org.videolan.libvlc.interfaces.IMedia.State.Stopped ||
+                    st == org.videolan.libvlc.interfaces.IMedia.State.Ended ||
+                    st == org.videolan.libvlc.interfaces.IMedia.State.Error
                 if (needsReconnect) {
                     val resumePos = if (isLiveStream) 0L else getLivePositionMs()
                     isBuffering = true

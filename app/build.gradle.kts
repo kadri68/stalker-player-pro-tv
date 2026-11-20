@@ -29,8 +29,7 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
-            versionNameSuffix = "-debug"
-            resValue("string", "app_name", "Stalker Player Pro v1.9.6-debug")
+            resValue("string", "app_name", "Stalker Player Pro v1.9.6")
         }
         release {
             isMinifyEnabled = true
