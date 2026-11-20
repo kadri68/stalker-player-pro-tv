@@ -324,7 +324,7 @@ fun SettingsScreen(
                 ClassicSettingsRow(
                     icon = Icons.Default.Info,
                     title = if (isAr) "حول التطبيق والمطور" else "About Application",
-                    valueText = "v1.9.0",
+                    valueText = "v${com.kadri.stalkerplayerpro.BuildConfig.VERSION_NAME}",
                     isAr = isAr,
                     onClick = { showAboutDialog = true }
                 )
@@ -546,6 +546,13 @@ fun SettingsScreen(
                         text = "stalker-player pro (IPTV STALKER)",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LtrText(
+                        text = "Version: v${com.kadri.stalkerplayerpro.BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.secondary,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(14.dp))

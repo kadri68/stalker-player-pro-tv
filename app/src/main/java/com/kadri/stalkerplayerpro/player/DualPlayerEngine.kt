@@ -65,9 +65,24 @@ data class AudioTrackInfo(
 @OptIn(UnstableApi::class)
 class DualPlayerController(
     private val context: Context,
-    private val preferredAudioLang: String = "ar",
-    private val preferredSubtitleLang: String = "ar"
+    private val preferredAudioLang: String = "en",
+    private val preferredSubtitleLang: String = "ar",
+    initialSubColor: Long = 0xFFFFD600,
+    initialSubSizeSp: Float = 36f,
+    initialSubBgAlpha: Float = 0.65f
 ) {
+    var subTextColor by mutableLongStateOf(initialSubColor)
+        private set
+    var subFontSizeSp by mutableStateOf(initialSubSizeSp)
+        private set
+    var subBgAlpha by mutableStateOf(initialSubBgAlpha)
+        private set
+
+    fun updateSubtitleAppearance(color: Long, sizeSp: Float, bgAlpha: Float) {
+        subTextColor = color
+        subFontSizeSp = sizeSp
+        subBgAlpha = bgAlpha
+    }
     var activeEngine by mutableStateOf(ActiveEngineType.EXOPLAYER)
         private set
 
@@ -458,7 +473,7 @@ class DualPlayerController(
         audioTracks = list
         if (!hasAppliedInitialVlcAudioPref) {
             hasAppliedInitialVlcAudioPref = true
-            val prefTrack = list.find { it.language.contains(preferredAudioLang, ignoreCase = true) }
+            val prefTrack = list.find { matchesSubLang(it.language, it.label, preferredAudioLang) }
             if (prefTrack != null && !prefTrack.isSelected) {
                 player.audioTrack = prefTrack.vlcTrackId
                 audioTracks = list.map { it.copy(isSelected = it.id == prefTrack.id) }
@@ -605,25 +620,48 @@ class DualPlayerController(
 
     fun togglePlayPause() {
         if (activeEngine == ActiveEngineType.EXOPLAYER) {
-            exoPlayer?.let {
-                if (it.isPlaying) {
-                    isManuallyPaused = true
-                    isReconnecting = false
-                    it.pause()
+            val exo = exoPlayer
+            if (exo != null && exo.isPlaying) {
+                isManuallyPaused = true
+                isReconnecting = false
+                exo.pause()
+            } else if (currentUrl.isNotBlank()) {
+                val wasManualPause = isManuallyPaused
+                isManuallyPaused = false
+                val needsReconnect = exo == null ||
+                    !wasManualPause ||
+                    exo.playbackState == Player.STATE_IDLE ||
+                    exo.playbackState == Player.STATE_ENDED ||
+                    exo.playerError != null
+                if (needsReconnect) {
+                    val resumePos = if (isLiveStream) 0L else getLivePositionMs()
+                    isBuffering = true
+                    startExoPlayer(currentUrl, resumePos)
                 } else {
-                    isManuallyPaused = false
-                    it.play()
+                    exo.play()
                 }
             }
         } else {
-            vlcPlayer?.let {
-                if (it.isPlaying) {
-                    isManuallyPaused = true
-                    isReconnecting = false
-                    it.pause()
+            val mp = vlcPlayer
+            if (mp != null && mp.isPlaying) {
+                isManuallyPaused = true
+                isReconnecting = false
+                mp.pause()
+            } else if (currentUrl.isNotBlank()) {
+                val wasManualPause = isManuallyPaused
+                isManuallyPaused = false
+                val st = mp?.playerState ?: -1
+                val needsReconnect = mp == null ||
+                    !wasManualPause ||
+                    st == org.videolan.libvlc.Media.State.Stopped ||
+                    st == org.videolan.libvlc.Media.State.Ended ||
+                    st == org.videolan.libvlc.Media.State.Error
+                if (needsReconnect) {
+                    val resumePos = if (isLiveStream) 0L else getLivePositionMs()
+                    isBuffering = true
+                    startLibVlc(currentUrl, resumePos)
                 } else {
-                    isManuallyPaused = false
-                    it.play()
+                    mp.play()
                 }
             }
         }
@@ -758,10 +796,38 @@ class DualPlayerController(
     }
 }
 
+private fun applySubtitleStyleToView(
+    subtitleView: androidx.media3.ui.SubtitleView?,
+    colorLong: Long,
+    sizeSp: Float,
+    bgAlpha: Float
+) {
+    subtitleView ?: return
+    subtitleView.visibility = android.view.View.VISIBLE
+    subtitleView.setApplyEmbeddedStyles(false)
+    subtitleView.setApplyEmbeddedFontSizes(false)
+    val bgAlphaInt = (bgAlpha.coerceIn(0f, 1f) * 255).toInt()
+    val bgColorInt = android.graphics.Color.argb(bgAlphaInt, 0, 0, 0)
+    subtitleView.setStyle(
+        androidx.media3.ui.CaptionStyleCompat(
+            colorLong.toInt(),
+            bgColorInt,
+            android.graphics.Color.TRANSPARENT,
+            androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+            android.graphics.Color.BLACK,
+            null
+        )
+    )
+    subtitleView.setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sizeSp)
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 fun DualVideoSurface(
     controller: DualPlayerController,
+    subTextColor: Long = controller.subTextColor,
+    subFontSizeSp: Float = controller.subFontSizeSp,
+    subBgAlpha: Float = controller.subBgAlpha,
     modifier: Modifier = Modifier
 ) {
     if (controller.activeEngine == ActiveEngineType.EXOPLAYER) {
@@ -770,10 +836,7 @@ fun DualVideoSurface(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     useController = false
-                    subtitleView?.visibility = android.view.View.VISIBLE
-                    subtitleView?.setApplyEmbeddedStyles(true)
-                    subtitleView?.setApplyEmbeddedFontSizes(true)
-                    subtitleView?.setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION)
+                    applySubtitleStyleToView(subtitleView, subTextColor, subFontSizeSp, subBgAlpha)
                     isClickable = false
                     isFocusable = false
                     setOnTouchListener { _, _ -> false }
@@ -785,7 +848,7 @@ fun DualVideoSurface(
                 }
             },
             update = { view ->
-                view.subtitleView?.visibility = android.view.View.VISIBLE
+                applySubtitleStyleToView(view.subtitleView, subTextColor, subFontSizeSp, subBgAlpha)
                 controller.attachExoView(view)
             }
         )

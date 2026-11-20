@@ -158,7 +158,16 @@ fun TvPlayerScreen(
         favorites.any { it.itemId == currentRequest.itemId }
     }
 
-    val controller = remember { DualPlayerController(context, settings.preferredAudioLang, settings.preferredSubtitleLang) }
+    val controller = remember {
+        DualPlayerController(
+            context = context,
+            preferredAudioLang = settings.preferredAudioLang,
+            preferredSubtitleLang = settings.preferredSubtitleLang,
+            initialSubColor = settings.subTextColor,
+            initialSubSizeSp = settings.subFontSizeSp,
+            initialSubBgAlpha = settings.subBgAlpha
+        )
+    }
     val rootFocusRequester = remember { FocusRequester() }
     val bottomBarInitialFocusRequester = remember { FocusRequester() }
 
@@ -232,14 +241,33 @@ fun TvPlayerScreen(
     }
 
     LaunchedEffect(currentRequest.itemId, currentRequest.streamCmdOrUrl) {
-        subtitleCues = emptyList()
-        subtitleOffsetMs = 0L
+        val subCacheKey = SubtitleCacheStore.buildKey(
+            currentRequest.portal.id,
+            currentRequest.contentType,
+            currentRequest.itemId,
+            currentRequest.title
+        )
+        val savedSub = if (currentRequest.contentType != "LIVE") {
+            SubtitleCacheStore.loadSubtitle(context, subCacheKey)
+        } else null
+
+        subtitleCues = savedSub?.cues ?: emptyList()
+        subtitleOffsetMs = savedSub?.offsetMs ?: 0L
         showControls = true
         controlInteractTick++
 
         val resolvedType = if (currentRequest.contentType == "LIVE") "itv" else "vod"
         val playableUrl = resolvePlayableUrl(currentRequest.portal, currentRequest.streamCmdOrUrl, resolvedType)
         controller.playStream(playableUrl, currentRequest.resumePositionMs, isLive = (currentRequest.contentType == "LIVE"))
+
+        if (savedSub != null) {
+            controller.selectEmbeddedSubtitleTrack(null)
+            Toast.makeText(
+                context,
+                if (isAr) "تم استعادة الترجمة المحفوظة (${savedSub.cues.size} سطر)" else "Restored saved subtitle (${savedSub.cues.size} cues)",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
 
         // تسجيل القناة أو الفيلم في سجل المشاهدة للوصول السريع
         dao.upsertWatchHistory(
@@ -515,6 +543,9 @@ fun TvPlayerScreen(
         // 1. سطح عرض الفيديو
         DualVideoSurface(
             controller = controller,
+            subTextColor = subColor,
+            subFontSizeSp = subSizeSp,
+            subBgAlpha = subBgAlpha,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -957,10 +988,19 @@ fun TvPlayerScreen(
                     controller.selectEmbeddedSubtitleTrack(null)
                     subtitleCues = loadedCues
                     subtitleOffsetMs = 0L
+                    if (currentRequest.contentType != "LIVE") {
+                        val subCacheKey = SubtitleCacheStore.buildKey(
+                            currentRequest.portal.id,
+                            currentRequest.contentType,
+                            currentRequest.itemId,
+                            currentRequest.title
+                        )
+                        SubtitleCacheStore.saveSubtitle(context, subCacheKey, loadedCues, 0L)
+                    }
                     showSubtitleSearchDialog = false
                     Toast.makeText(
                         context,
-                        if (isAr) "تم تحميل الترجمة (${loadedCues.size} سطر)" else "Loaded ${loadedCues.size} cues",
+                        if (isAr) "تم تحميل وحفظ الترجمة لهذا الفيلم (${loadedCues.size} سطر)" else "Loaded & saved subtitle (${loadedCues.size} cues)",
                         Toast.LENGTH_SHORT
                     ).show()
                 },
@@ -978,6 +1018,7 @@ fun TvPlayerScreen(
                     subColor = c
                     subSizeSp = s
                     subBgAlpha = a
+                    controller.updateSubtitleAppearance(c, s, a)
                     scope.launch { settingsStore.updateSubtitleStyle(c, s, a) }
                 },
                 onDismiss = { showSubtitleStyleDialog = false }

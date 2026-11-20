@@ -20,7 +20,7 @@ data class TvUserSettings(
     val clockCorner: Int = 0,
     val showClock: Boolean = true,
     val autoPipEnabled: Boolean = true,
-    val preferredAudioLang: String = "ar",
+    val preferredAudioLang: String = "en",
     val preferredSubtitleLang: String = "ar",
     // إعدادات الترجمة الخارجية ومحرك البحث المفضل ("BOTH", "OPENSUBTITLES", "SUBDL")
     val subtitleEngine: String = "BOTH",
@@ -29,8 +29,8 @@ data class TvUserSettings(
     val openSubPassword: String = "",
     val openSubJwtToken: String = "",
     val subdlApiKey: String = "",
-    val subTextColor: Long = 0xFFFFFFFF,
-    val subFontSizeSp: Float = 24f,
+    val subTextColor: Long = 0xFFFFD600,
+    val subFontSizeSp: Float = 36f,
     val subBgAlpha: Float = 0.65f
 )
 
@@ -68,7 +68,7 @@ class SettingsDataStore(private val context: Context) {
             clockCorner = prefs[KEY_CLOCK_CORNER] ?: 0,
             showClock = (prefs[KEY_SHOW_CLOCK] ?: 1) == 1,
             autoPipEnabled = (prefs[KEY_AUTO_PIP] ?: 1) == 1,
-            preferredAudioLang = prefs[KEY_AUDIO_LANG] ?: "ar",
+            preferredAudioLang = prefs[KEY_AUDIO_LANG] ?: "en",
             preferredSubtitleLang = prefs[KEY_SUBTITLE_LANG] ?: "ar",
             subtitleEngine = prefs[KEY_SUBTITLE_ENGINE] ?: "BOTH",
             openSubApiKey = prefs[KEY_OS_API_KEY] ?: "",
@@ -76,8 +76,8 @@ class SettingsDataStore(private val context: Context) {
             openSubPassword = prefs[KEY_OS_PASS] ?: "",
             openSubJwtToken = prefs[KEY_OS_TOKEN] ?: "",
             subdlApiKey = prefs[KEY_SUBDL_API_KEY] ?: "",
-            subTextColor = prefs[KEY_SUB_COLOR] ?: 0xFFFFFFFF,
-            subFontSizeSp = prefs[KEY_SUB_SIZE] ?: 24f,
+            subTextColor = prefs[KEY_SUB_COLOR] ?: 0xFFFFD600,
+            subFontSizeSp = prefs[KEY_SUB_SIZE] ?: 36f,
             subBgAlpha = prefs[KEY_SUB_BG_ALPHA] ?: 0.65f
         )
     }
