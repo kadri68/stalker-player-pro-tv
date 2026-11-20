@@ -143,6 +143,7 @@ fun TvPlayerScreen(
     val componentActivity = activity as? ComponentActivity
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val scope = rememberCoroutineScope()
+    val liveSettings by settingsStore.settingsFlow.collectAsState(initial = settings)
 
     var currentRequest by remember { mutableStateOf(initialRequest) }
     var currentChannelIdx by remember { mutableIntStateOf(initialRequest.currentChannelIndex) }
@@ -1002,7 +1003,7 @@ fun TvPlayerScreen(
             }
             SubtitleSearchDialog(
                 initialQuery = initialQuery,
-                settings = settings,
+                settings = liveSettings,
                 settingsStore = settingsStore,
                 isAr = isAr,
                 onSubtitleLoaded = { loadedCues ->
@@ -1772,10 +1773,11 @@ private fun cleanMovieTitleForSubtitleSearch(raw: String): String {
     s = s.replace(Regex("\\b(19\\d{2}|20\\d{2})[-/.]\\d{1,2}[-/.]\\d{1,2}\\b"), " ")
     s = s.replace(Regex("\\b\\d{1,2}[-/.]\\d{1,2}[-/.](19\\d{2}|20\\d{2})\\b"), " ")
     s = s.replace(Regex("\\[[^\\]]*\\]|\\([^)]*\\)|\\{[^}]*\\}"), " ")
-    s = s.replace(Regex("(?i)\\b(1080p|720p|480p|2160p|4k|uhd|fhd|hd|sd|bluray|blu-ray|bdrip|brrip|web-dl|webrip|hdrip|dvdrip|x264|x265|hevc|h264|h265|aac|ac3|dts|dual|multi|sub|subs|dubbed|vf|vostfr|ar|en|fr|tr)\\b"), " ")
-    s = s.replace(Regex("(مترجم|مدبلج|حصريا|حصري|جودة عالية|كامل|اون لاين|أون لاين)"), " ")
+    s = s.replace(Regex("[._]+"), " ")
+    s = s.replace(Regex("(?i)\\b(1080p|720p|480p|2160p|4k|uhd|fhd|hd|sd|bluray|blu-ray|bdrip|brrip|web-dl|webrip|hdrip|dvdrip|x264|x265|hevc|h264|h265|aac|ac3|dts|dual|multi|sub|subs|dubbed|vf|vostfr|ar|en|fr|tr|mp4|mkv|avi)\\b"), " ")
+    s = s.replace(Regex("(^|\\s)(فيلم|مسلسل|حلقة|الحلقة|الموسم|الجزء|مترجم|مدبلج|حصريا|حصري|جودة عالية|كامل|اون لاين|أون لاين)(\\s|$)"), " ")
     s = s.replace(Regex("\\b(19\\d{2}|20\\d{2})\\b"), " ")
-    s = s.replace(Regex("[|_•★☆~#*+=<>\\[\\](){}/\\\\]+"), " ")
+    s = s.replace(Regex("[|•★☆~#*+=<>\\[\\](){}/\\\\]+"), " ")
     s = s.replace(Regex("\\s+[-–—:]+\\s+"), " ")
     s = s.replace(Regex("\\s+"), " ").trim(' ', '-', ':', '.', '_')
     return if (year.isNotEmpty() && s.isNotEmpty()) "$s $year" else s.ifEmpty { raw.trim() }
@@ -1803,6 +1805,15 @@ private fun SubtitleSearchDialog(
         val cleanedBeforeSearch = cleanMovieTitleForSubtitleSearch(searchBoxText)
         if (cleanedBeforeSearch.isNotBlank()) searchBoxText = cleanedBeforeSearch
         if (searchBoxText.isBlank()) return
+        SubtitleRepository.lastSearchDiagnostic = ""
+        if (settings.openSubApiKey.isBlank() && settings.subdlApiKey.isBlank()) {
+            statusMsg = if (isAr) {
+                "مفاتيح API فارغة! افتح الإعدادات > حسابات الترجمة وأدخل مفتاح OpenSubtitles أو Subdl."
+            } else {
+                "API keys are empty! Open Settings > Subtitle API Accounts to enter your key."
+            }
+            return
+        }
         scope.launch {
             isSearching = true
             statusMsg = ""
@@ -1840,10 +1851,11 @@ private fun SubtitleSearchDialog(
 
             results = osList + subdlList
             if (results.isEmpty()) {
+                val diag = SubtitleRepository.lastSearchDiagnostic
                 statusMsg = if (isAr) {
-                    "لم يتم العثور على ترجمات. تأكد من مفاتيح API في الإعدادات أو عدّل اسم البحث."
+                    "لم يتم العثور على ترجمات لـ \"$cleanTitle\". ${if (diag.isNotBlank()) "($diag)" else "جرّب تعديل الاسم أو اللغة."}"
                 } else {
-                    "No subtitles found. Verify API keys in Settings or adjust title."
+                    "No subtitles found for \"$cleanTitle\". ${if (diag.isNotBlank()) "($diag)" else "Try adjusting title or language."}"
                 }
             }
             isSearching = false
@@ -1861,6 +1873,25 @@ private fun SubtitleSearchDialog(
         onDismiss = onDismiss,
         maxWidth = 640.dp
     ) { firstRequester ->
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val osOk = settings.openSubApiKey.isNotBlank()
+            val subdlOk = settings.subdlApiKey.isNotBlank()
+            Text(
+                text = if (osOk) "OpenSubtitles: ✓" else (if (isAr) "OpenSubtitles: بدون مفتاح" else "OpenSubtitles: No Key"),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (osOk) Color(0xFF00E676) else Color(0xFFFFB300),
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = if (subdlOk) "Subdl: ✓" else (if (isAr) "Subdl: بدون مفتاح" else "Subdl: No Key"),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (subdlOk) Color(0xFF00E676) else Color(0xFFFFB300),
+                fontWeight = FontWeight.Bold
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,

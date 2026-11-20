@@ -13,20 +13,19 @@ import java.io.BufferedReader
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.zip.ZipInputStream
 
-/**
- * مستودع الترجمة الخارجية:
- * يدعم OpenSubtitles.com REST API v1 (مع تحويل الاستعلام لأحرف صغيرة لتفادي خطأ 301)
- * و Subdl.com API (مع فك ضغط ملفات ZIP تلقائياً وتحليل SRT / VTT)
- */
 object SubtitleRepository {
 
     private const val OS_BASE = "https://api.opensubtitles.com/api/v1"
     private const val SUBDL_BASE = "https://api.subdl.com/api/v1/subtitles"
-    private const val USER_AGENT = "StalkerPlayerProTV v1.0"
+    private const val USER_AGENT = "StalkerPlayerProTV v2.0"
+
+    @Volatile
+    var lastSearchDiagnostic: String = ""
 
     suspend fun loginOpenSubtitles(apiKey: String, username: String, password: String): String? =
         withContext(Dispatchers.IO) {
@@ -42,11 +41,13 @@ object SubtitleRepository {
                     .header("Api-Key", apiKey.trim())
                     .header("User-Agent", USER_AGENT)
                     .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
                     .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
                     .build()
 
                 HttpClientProvider.client.newCall(req).execute().use { resp ->
                     val body = resp.body?.string().orEmpty()
+                    if (!resp.isSuccessful) return@use null
                     JSONObject(body).optString("token").takeIf { it.isNotBlank() }
                 }
             }.getOrNull()
@@ -59,16 +60,15 @@ object SubtitleRepository {
         year: Int? = null,
         languages: String = "ar,en"
     ): List<SubtitleSearchResult> = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank() || rawQuery.isBlank()) return@withContext emptyList()
-        // تحويل الاستعلام لأحرف صغيرة لتجنب خطأ إعادة التوجيه 301 في OpenSubtitles v1
+        val cleanKey = apiKey.trim()
+        if (cleanKey.isBlank() || rawQuery.isBlank()) return@withContext emptyList()
         val normalizedQuery = rawQuery.trim().lowercase(Locale.US)
 
-        val firstAttempt = executeOsSearch(apiKey, jwtToken, normalizedQuery, year, languages)
+        val firstAttempt = executeOsSearch(cleanKey, jwtToken, normalizedQuery, year, languages)
         if (firstAttempt.isNotEmpty() || year == null) {
             return@withContext firstAttempt
         }
-        // بحث احتياطي تلقائي بدون سنة الإنتاج إذا لم تظهر نتائج
-        executeOsSearch(apiKey, jwtToken, normalizedQuery, null, languages)
+        executeOsSearch(cleanKey, jwtToken, normalizedQuery, null, languages)
     }
 
     private fun executeOsSearch(
@@ -79,16 +79,26 @@ object SubtitleRepository {
         languages: String
     ): List<SubtitleSearchResult> {
         return runCatching {
-            val urlBuilder = "$OS_BASE/subtitles".toHttpUrl().newBuilder()
-                .addQueryParameter("query", lowerQuery)
-                .addQueryParameter("languages", languages.lowercase(Locale.US))
-            if (year != null && year > 1900) {
-                urlBuilder.addQueryParameter("year", year.toString())
+            val sortedLangs = languages.lowercase(Locale.US)
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .sorted()
+                .joinToString(",")
+                .ifBlank { "ar,en" }
+
+            val encodedQuery = URLEncoder.encode(lowerQuery, "UTF-8")
+            val encodedLangs = URLEncoder.encode(sortedLangs, "UTF-8")
+            val fullUrl = buildString {
+                append("$OS_BASE/subtitles?languages=$encodedLangs&query=$encodedQuery")
+                if (year != null && year > 1900) {
+                    append("&year=$year")
+                }
             }
 
             val reqBuilder = Request.Builder()
-                .url(urlBuilder.build())
-                .header("Api-Key", apiKey.trim())
+                .url(fullUrl)
+                .header("Api-Key", apiKey)
                 .header("User-Agent", USER_AGENT)
                 .header("Accept", "application/json")
 
@@ -98,6 +108,10 @@ object SubtitleRepository {
 
             HttpClientProvider.client.newCall(reqBuilder.build()).execute().use { resp ->
                 val body = resp.body?.string().orEmpty()
+                if (!resp.isSuccessful) {
+                    lastSearchDiagnostic = "OpenSubtitles HTTP ${resp.code}"
+                    return emptyList()
+                }
                 val dataArr = JSONObject(body).optJSONArray("data") ?: return emptyList()
                 val results = ArrayList<SubtitleSearchResult>(dataArr.length())
 
@@ -127,6 +141,8 @@ object SubtitleRepository {
                 }
                 results
             }
+        }.onFailure {
+            lastSearchDiagnostic = "OpenSubtitles: ${it.message ?: "Network error"}"
         }.getOrDefault(emptyList())
     }
 
@@ -136,14 +152,14 @@ object SubtitleRepository {
         year: Int? = null,
         languages: String = "AR,EN"
     ): List<SubtitleSearchResult> = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank() || rawQuery.isBlank()) return@withContext emptyList()
+        val cleanKey = apiKey.trim()
+        if (cleanKey.isBlank() || rawQuery.isBlank()) return@withContext emptyList()
         val cleanQuery = rawQuery.trim()
-        val firstAttempt = executeSubdlSearch(apiKey, cleanQuery, year, languages)
+        val firstAttempt = executeSubdlSearch(cleanKey, cleanQuery, year, languages)
         if (firstAttempt.isNotEmpty() || year == null) {
             return@withContext firstAttempt
         }
-        // بحث احتياطي تلقائي بدون سنة الإنتاج
-        executeSubdlSearch(apiKey, cleanQuery, null, languages)
+        executeSubdlSearch(cleanKey, cleanQuery, null, languages)
     }
 
     private fun executeSubdlSearch(
@@ -154,9 +170,10 @@ object SubtitleRepository {
     ): List<SubtitleSearchResult> {
         return runCatching {
             val urlBuilder = SUBDL_BASE.toHttpUrl().newBuilder()
-                .addQueryParameter("api_key", apiKey.trim())
+                .addQueryParameter("api_key", apiKey)
                 .addQueryParameter("film_name", query)
                 .addQueryParameter("languages", languages.uppercase(Locale.US))
+                .addQueryParameter("subs_per_page", "30")
             if (year != null && year > 1900) {
                 urlBuilder.addQueryParameter("year", year.toString())
             }
@@ -164,21 +181,37 @@ object SubtitleRepository {
             val req = Request.Builder()
                 .url(urlBuilder.build())
                 .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
                 .build()
 
             HttpClientProvider.client.newCall(req).execute().use { resp ->
                 val body = resp.body?.string().orEmpty()
-                val subsArr = JSONObject(body).optJSONArray("subtitles") ?: return emptyList()
+                if (!resp.isSuccessful) {
+                    lastSearchDiagnostic = "Subdl HTTP ${resp.code}"
+                    return emptyList()
+                }
+                val json = JSONObject(body)
+                if (json.has("status") && !json.optBoolean("status", true)) {
+                    val err = json.optString("error", json.optString("message", ""))
+                    if (err.isNotBlank()) lastSearchDiagnostic = "Subdl: $err"
+                }
+                val subsArr = json.optJSONArray("subtitles") ?: return emptyList()
                 val results = ArrayList<SubtitleSearchResult>(subsArr.length())
 
                 for (i in 0 until subsArr.length()) {
                     val sub = subsArr.optJSONObject(i) ?: continue
                     val rawUrl = sub.optString("url")
-                    val fullUrl = if (rawUrl.startsWith("http")) rawUrl else "https://dl.subdl.com$rawUrl"
-                    val releaseName = sub.optString("release_name", "Subdl_${i + 1}.srt")
-                    val lang = sub.optString("lang", "AR")
+                    val fullUrl = when {
+                        rawUrl.startsWith("http") -> rawUrl
+                        rawUrl.startsWith("/") -> "https://dl.subdl.com$rawUrl"
+                        rawUrl.isNotBlank() -> "https://dl.subdl.com/$rawUrl"
+                        else -> ""
+                    }
+                    val releaseName = sub.optString("release_name")
+                        .ifBlank { sub.optString("name", "Subdl_${i + 1}.srt") }
+                    val lang = sub.optString("lang", sub.optString("language", "AR"))
 
-                    if (rawUrl.isNotBlank()) {
+                    if (fullUrl.isNotBlank()) {
                         results.add(
                             SubtitleSearchResult(
                                 id = "subdl_$i",
@@ -193,6 +226,8 @@ object SubtitleRepository {
                 }
                 results
             }
+        }.onFailure {
+            lastSearchDiagnostic = "Subdl: ${it.message ?: "Network error"}"
         }.getOrDefault(emptyList())
     }
 
@@ -203,7 +238,8 @@ object SubtitleRepository {
     ): List<SubtitleCue> = withContext(Dispatchers.IO) {
         runCatching {
             val downloadLink = if (item.source == "OpenSubtitles") {
-                resolveOpenSubtitlesDownloadLink(osApiKey, osJwtToken, item.fileId) ?: return@withContext emptyList()
+                resolveOpenSubtitlesDownloadLink(osApiKey.trim(), osJwtToken.trim(), item.fileId)
+                    ?: return@withContext emptyList()
             } else {
                 item.downloadUrl
             }
@@ -211,7 +247,6 @@ object SubtitleRepository {
             val req = Request.Builder().url(downloadLink).header("User-Agent", USER_AGENT).build()
             HttpClientProvider.client.newCall(req).execute().use { resp ->
                 val bytes = resp.body?.bytes() ?: return@withContext emptyList()
-                // إذا كان الملف مضغوطاً بصيغة ZIP (شائع في Subdl) نفك أول ملف SRT/VTT بداخله
                 if (bytes.size >= 2 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()) {
                     ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
                         var entry = zis.nextEntry
@@ -237,13 +272,14 @@ object SubtitleRepository {
 
         val reqBuilder = Request.Builder()
             .url("$OS_BASE/download")
-            .header("Api-Key", apiKey.trim())
+            .header("Api-Key", apiKey)
             .header("User-Agent", USER_AGENT)
             .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
 
         if (jwtToken.isNotBlank()) {
-            reqBuilder.header("Authorization", "Bearer ${jwtToken.trim()}")
+            reqBuilder.header("Authorization", "Bearer $jwtToken")
         }
 
         return HttpClientProvider.client.newCall(reqBuilder.build()).execute().use { resp ->

@@ -395,6 +395,14 @@ class DualPlayerController(
         activeEngine = ActiveEngineType.LIBVLC
         isBuffering = true
 
+        val vlcRgb = (subTextColor and 0x00FFFFFFL).toInt()
+        val vlcRelSize = when {
+            subFontSizeSp >= 36f -> 12
+            subFontSizeSp >= 32f -> 14
+            subFontSizeSp >= 26f -> 17
+            else -> 21
+        }
+        val vlcBgAlpha = (subBgAlpha.coerceIn(0f, 1f) * 255f).toInt()
         val vlc = libVlc ?: LibVLC(
             context,
             arrayListOf(
@@ -407,8 +415,13 @@ class DualPlayerController(
                 "--file-caching=1200",
                 "--avcodec-hw=any",
                 "--codec=all",
-            "--sub-track=0",
-            "--freetype-rel-fontsize=18"
+                "--sub-track=0",
+                "--sub-margin=36",
+                "--freetype-bold",
+                "--freetype-color=$vlcRgb",
+                "--freetype-rel-fontsize=$vlcRelSize",
+                "--freetype-background-color=0",
+                "--freetype-background-opacity=$vlcBgAlpha"
             )
         ).also { libVlc = it }
 
@@ -580,6 +593,7 @@ class DualPlayerController(
     }
 
     fun selectEmbeddedSubtitleTrack(track: EmbeddedSubtitleTrackInfo?) {
+        liveEmbeddedCueText = ""
         if (activeEngine == ActiveEngineType.EXOPLAYER) {
             val exo = exoPlayer ?: return
             if (track == null) {
@@ -766,8 +780,21 @@ class DualPlayerController(
         playerView.player = exoPlayer
     }
 
+    private fun ensureVlcSubtitleOverlay(layout: VLCVideoLayout) {
+        for (i in 0 until layout.childCount) {
+            val child = layout.getChildAt(i)
+            if (child is android.view.SurfaceView && i > 0) {
+                runCatching {
+                    child.setZOrderMediaOverlay(true)
+                    child.holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+                }
+            }
+        }
+    }
+
     fun attachVlcLayout(layout: VLCVideoLayout) {
         attachedVlcLayout = layout
+        ensureVlcSubtitleOverlay(layout)
         vlcPlayer?.let { mp ->
             if (!mp.vlcVout.areViewsAttached()) {
                 mp.attachViews(layout, null, true, false)
