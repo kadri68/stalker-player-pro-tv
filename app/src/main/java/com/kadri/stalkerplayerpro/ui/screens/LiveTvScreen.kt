@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -366,9 +367,11 @@ fun LiveTvScreen(
                 }
                 Spacer(modifier = Modifier.height(6.dp))
 
+                val catListState = rememberLazyListState()
                 LazyColumn(
+                    state = catListState,
                     verticalArrangement = Arrangement.spacedBy(5.dp),
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize().focusGroup()
                 ) {
                     itemsIndexed(
                         items = fullCategories,
@@ -390,6 +393,12 @@ fun LiveTvScreen(
                                 .focusProperties {
                                     if (filteredChannels.isNotEmpty()) {
                                         if (isAr) left = channelsEntryRequester else right = channelsEntryRequester
+                                        if (index == fullCategories.lastIndex) {
+                                            down = channelsEntryRequester
+                                        }
+                                    }
+                                    if (index > 0) {
+                                        up = FocusRequester.Default
                                     }
                                 }
                                 .tvFocusItem(

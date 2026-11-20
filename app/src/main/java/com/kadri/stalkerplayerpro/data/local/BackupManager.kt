@@ -12,7 +12,7 @@ import java.io.File
 
 data class BackupSelectionOptions(
     val includePortals: Boolean = true,
-    val selectedPortalKeys: Set<String>? = null, // null = جميع البوابات المضافة (باستثناء AR-TV المجانية)
+    val selectedPortalKeys: Set<String>? = null,
     val includeFavorites: Boolean = true,
     val includeSubtitleAccounts: Boolean = true,
     val includeAppSettings: Boolean = true
@@ -51,12 +51,54 @@ object BackupManager {
         return File(appDir, DEFAULT_BACKUP_FILENAME)
     }
 
+    suspend fun findBackupFilesOnDevice(context: Context): List<File> = withContext(Dispatchers.IO) {
+        val candidateDirs = linkedSetOf<File>()
+        runCatching {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)?.let { candidateDirs.add(it) }
+        }
+        runCatching {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)?.let { candidateDirs.add(it) }
+        }
+        runCatching {
+            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let { candidateDirs.add(it) }
+        }
+        runCatching {
+            context.getExternalFilesDir(null)?.let { candidateDirs.add(it) }
+        }
+        candidateDirs.add(context.filesDir)
+
+        val foundFiles = linkedMapOf<String, File>()
+        for (dir in candidateDirs) {
+            runCatching {
+                if (dir.exists() && dir.isDirectory && dir.canRead()) {
+                    val children = dir.listFiles() ?: return@runCatching
+                    for (f in children) {
+                        if (f.isFile && f.canRead() && f.length() in 10L..15_000_000L &&
+                            f.name.endsWith(".json", ignoreCase = true)
+                        ) {
+                            foundFiles.putIfAbsent(f.absolutePath, f)
+                        }
+                    }
+                }
+            }
+        }
+
+        foundFiles.values.sortedWith(
+            compareByDescending<File> {
+                it.name.contains("stalker", ignoreCase = true) || it.name.contains("backup", ignoreCase = true)
+            }.thenByDescending { it.lastModified() }
+        )
+    }
+
+    suspend fun inspectBackupJsonAsync(rawJson: String): BackupInspectionResult? = withContext(Dispatchers.IO) {
+        inspectBackupJson(rawJson)
+    }
+
     fun inspectBackupJson(rawJson: String): BackupInspectionResult? {
         return runCatching {
             val clean = rawJson.trim().removePrefix("\uFEFF")
             if (clean.isBlank()) return@runCatching null
             val root = JSONObject(clean)
-
             val previews = mutableListOf<BackupPortalPreview>()
             val portalsArr = root.optJSONArray("portals")
             if (portalsArr != null) {
@@ -84,6 +126,7 @@ object BackupManager {
                 s.optString("subdlApiKey").isNotBlank() ||
                 s.has("subtitleEngine")
             )
+            if (previews.isEmpty() && favCount == 0 && s == null) return@runCatching null
             BackupInspectionResult(
                 portals = previews,
                 favoritesCount = favCount,
@@ -98,7 +141,6 @@ object BackupManager {
         settingsStore: SettingsDataStore,
         options: BackupSelectionOptions = BackupSelectionOptions()
     ): String = withContext(Dispatchers.IO) {
-        // استثناء بوابة القنوات المجانية المدمجة AR-TV تلقائياً لأنها تأتي مع التطبيق دائماً
         val portals = dao.getAllPortals().filter { it.url != BUILTIN_FREE_AR_M3U_URL }
         val favorites = dao.getAllFavorites()
         val settings = settingsStore.settingsFlow.first()
@@ -152,6 +194,7 @@ object BackupManager {
                 put("clockCorner", settings.clockCorner)
                 put("showClock", settings.showClock)
                 put("preferredAudioLang", settings.preferredAudioLang)
+                put("preferredSubtitleLang", settings.preferredSubtitleLang)
                 put("subTextColor", settings.subTextColor)
                 put("subFontSizeSp", settings.subFontSizeSp.toDouble())
                 put("subBgAlpha", settings.subBgAlpha.toDouble())
@@ -186,13 +229,13 @@ object BackupManager {
             if (clean.isBlank()) return@withContext false
             val root = JSONObject(clean)
 
+            val importedPortals = ArrayList<PortalEntity>()
             if (options.includePortals) {
                 val portalsArr = root.optJSONArray("portals")
                 if (portalsArr != null) {
                     val existingKeys = dao.getAllPortals()
                         .map { portalBackupKey(it.url, it.mac, it.username) }
                         .toHashSet()
-                    val importedPortals = ArrayList<PortalEntity>(portalsArr.length())
                     for (i in 0 until portalsArr.length()) {
                         val obj = portalsArr.optJSONObject(i) ?: continue
                         val url = obj.optString("url").trim()
@@ -218,15 +261,10 @@ object BackupManager {
                             )
                         )
                     }
-                    if (importedPortals.isNotEmpty()) {
-                        dao.insertPortals(importedPortals)
-                        if (dao.getActivePortal() == null) {
-                            dao.getAllPortals().firstOrNull()?.let { dao.setActivePortal(it.id) }
-                        }
-                    }
                 }
             }
 
+            val importedFavorites = ArrayList<FavoriteEntity>()
             if (options.includeFavorites) {
                 val favsArr = root.optJSONArray("favorites")
                 if (favsArr != null) {
@@ -234,7 +272,7 @@ object BackupManager {
                         val obj = favsArr.optJSONObject(i) ?: continue
                         val itemId = obj.optString("itemId").trim()
                         if (itemId.isNotBlank()) {
-                            dao.addFavorite(
+                            importedFavorites.add(
                                 FavoriteEntity(
                                     portalId = obj.optLong("portalId", 1L),
                                     contentType = obj.optString("contentType", "LIVE"),
@@ -250,6 +288,9 @@ object BackupManager {
                 }
             }
 
+            // إدخال جميع البوابات والمفضلات في معاملة واحدة خاطفة لمنع تجمّد التلفاز
+            dao.applyBackupBatch(importedPortals, importedFavorites)
+
             val s = root.optJSONObject("settings")
             if (s != null) {
                 if (options.includeAppSettings && s.has("themeId")) {
@@ -259,10 +300,13 @@ object BackupManager {
                     settingsStore.updateParentalPin(s.optString("parentalPin", "0000"))
                     settingsStore.updateClockCorner(s.optInt("clockCorner", 0))
                     settingsStore.updateShowClock(s.optBoolean("showClock", true))
-                    settingsStore.updatePreferredAudioLang(s.optString("preferredAudioLang", "ar"))
+                    settingsStore.updatePreferredAudioLang(s.optString("preferredAudioLang", "en"))
+                    if (s.has("preferredSubtitleLang")) {
+                        settingsStore.updatePreferredSubtitleLang(s.optString("preferredSubtitleLang", "ar"))
+                    }
                     settingsStore.updateSubtitleStyle(
-                        color = s.optLong("subTextColor", 0xFFFFFFFF),
-                        sizeSp = s.optDouble("subFontSizeSp", 24.0).toFloat(),
+                        color = s.optLong("subTextColor", 0xFFFFD600),
+                        sizeSp = s.optDouble("subFontSizeSp", 38.0).toFloat(),
                         bgAlpha = s.optDouble("subBgAlpha", 0.65).toFloat()
                     )
                 }
@@ -295,17 +339,5 @@ object BackupManager {
             file.writeText(json, Charsets.UTF_8)
             file.absolutePath
         }.getOrNull()
-    }
-
-    suspend fun importFromDefaultFolder(
-        context: Context,
-        dao: AppDao,
-        settingsStore: SettingsDataStore,
-        options: BackupSelectionOptions = BackupSelectionOptions()
-    ): Boolean = withContext(Dispatchers.IO) {
-        val file = getDefaultBackupFile(context)
-        if (!file.exists() || file.length() == 0L) return@withContext false
-        val raw = runCatching { file.readText(Charsets.UTF_8) }.getOrNull() ?: return@withContext false
-        parseAndApplyBackupJson(raw, dao, settingsStore, options)
     }
 }

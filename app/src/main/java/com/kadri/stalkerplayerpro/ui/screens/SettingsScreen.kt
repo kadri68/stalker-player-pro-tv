@@ -98,6 +98,9 @@ fun SettingsScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     var pendingImportRawJson by remember { mutableStateOf("") }
     var importInspection by remember { mutableStateOf<BackupInspectionResult?>(null) }
+    var availableBackupFiles by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
+    var showBackupFilePickerDialog by remember { mutableStateOf(false) }
+    var isImportingBackup by remember { mutableStateOf(false) }
 
     val anyDialog = showPinDialog || showUnifiedAudioSubDialog || showAssistantDialog || showAboutDialog ||
             showExportDialog || showImportDialog
@@ -277,29 +280,45 @@ fun SettingsScreen(
                     valueText = if (isAr) "انتقاء العناصر للاستعادة" else "Selective Restore",
                     isAr = isAr,
                     onClick = {
-                        if (isTv) {
+                        if (!isImportingBackup) {
                             scope.launch {
-                                val file = BackupManager.getDefaultBackupFile(context)
-                                val raw = withContext(Dispatchers.IO) {
-                                    if (file.exists()) runCatching { file.readText(Charsets.UTF_8) }.getOrDefault("") else ""
-                                }
-                                val inspected = BackupManager.inspectBackupJson(raw)
-                                if (inspected != null) {
-                                    pendingImportRawJson = raw
-                                    importInspection = inspected
-                                    showImportDialog = true
+                                isImportingBackup = true
+                                val files = BackupManager.findBackupFilesOnDevice(context)
+                                if (files.size == 1) {
+                                    val raw = withContext(Dispatchers.IO) {
+                                        runCatching { files.first().readText(Charsets.UTF_8) }.getOrDefault("")
+                                    }
+                                    val inspected = BackupManager.inspectBackupJsonAsync(raw)
+                                    isImportingBackup = false
+                                    if (inspected != null) {
+                                        pendingImportRawJson = raw
+                                        importInspection = inspected
+                                        showImportDialog = true
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            if (isAr) "ملف الباكب غير صالح أو تالف" else "Backup file is invalid or corrupted",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                } else if (files.size > 1) {
+                                    isImportingBackup = false
+                                    availableBackupFiles = files
+                                    showBackupFilePickerDialog = true
                                 } else {
-                                    Toast.makeText(
-                                        context,
-                                        if (isAr) "لم يتم العثور على ملف باكب في Download" else "No backup file found in Download",
-                                        Toast.LENGTH_LONG
-                                    ).show()
+                                    isImportingBackup = false
+                                    val ok = runCatching {
+                                        com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true
+                                        importFileLauncher.launch(arrayOf("application/json", "*/*"))
+                                    }.isSuccess
+                                    if (!ok) {
+                                        Toast.makeText(
+                                            context,
+                                            if (isAr) "ضع ملف stalker_player_pro_backup.json في مجلد Download" else "Place stalker_player_pro_backup.json in Download folder",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
                                 }
-                            }
-                        } else {
-                            val ok = runCatching { com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; importFileLauncher.launch(arrayOf("application/json", "*/*")) }.isSuccess
-                            if (!ok) {
-                                Toast.makeText(context, if (isAr) "متصفح الملفات غير متوفر" else "File picker unavailable", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -360,6 +379,90 @@ fun SettingsScreen(
             )
         }
 
+        if (showBackupFilePickerDialog) {
+            TvModalDialog(
+                title = if (isAr) "اختر ملف النسخة الاحتياطية" else "Select Backup File",
+                onDismiss = { showBackupFilePickerDialog = false },
+                maxWidth = 540.dp,
+                scrollableBody = true,
+                footer = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .tvFocusItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    onClick = {
+                                        showBackupFilePickerDialog = false
+                                        val ok = runCatching {
+                                            com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true
+                                            importFileLauncher.launch(arrayOf("application/json", "*/*"))
+                                        }.isSuccess
+                                        if (!ok) {
+                                            Toast.makeText(context, if (isAr) "متصفح الملفات غير متوفر على هذا التلفاز" else "System file picker unavailable", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                                .padding(horizontal = 14.dp, vertical = 9.dp)
+                        ) {
+                            Text(if (isAr) "تصفح الجهاز" else "Browse Device", color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .tvFocusItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                    onClick = { showBackupFilePickerDialog = false }
+                                )
+                                .padding(horizontal = 18.dp, vertical = 9.dp)
+                        ) {
+                            Text(if (isAr) "إغلاق" else "Close", color = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                }
+            ) { firstReq ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    availableBackupFiles.forEachIndexed { fIdx, bFile ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvFocusItem(
+                                    focusRequester = if (fIdx == 0) firstReq else null,
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    onClick = {
+                                        showBackupFilePickerDialog = false
+                                        scope.launch {
+                                            val raw = withContext(Dispatchers.IO) {
+                                                runCatching { bFile.readText(Charsets.UTF_8) }.getOrDefault("")
+                                            }
+                                            val inspected = BackupManager.inspectBackupJsonAsync(raw)
+                                            if (inspected != null) {
+                                                pendingImportRawJson = raw
+                                                importInspection = inspected
+                                                showImportDialog = true
+                                            } else {
+                                                Toast.makeText(context, if (isAr) "ملف باكب غير صالح" else "Invalid backup file", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                )
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = bFile.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Text(text = bFile.parentFile?.name.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (showImportDialog && importInspection != null) {
             val info = importInspection!!
             SelectiveBackupDialog(
@@ -374,7 +477,9 @@ fun SettingsScreen(
                 onConfirm = { options ->
                     showImportDialog = false
                     scope.launch {
-                        val ok = BackupManager.parseAndApplyBackupJson(pendingImportRawJson, dao, settingsStore, options)
+                        val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            BackupManager.parseAndApplyBackupJson(pendingImportRawJson, dao, settingsStore, options)
+                        }
                         Toast.makeText(
                             context,
                             if (ok) {

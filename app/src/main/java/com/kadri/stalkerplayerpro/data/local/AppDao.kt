@@ -52,11 +52,9 @@ interface AppDao {
         if (index == -1) return
         val targetIndex = if (moveUp) index - 1 else index + 1
         if (targetIndex !in all.indices) return
-
         val mutable = all.toMutableList()
         val item = mutable.removeAt(index)
         mutable.add(targetIndex, item)
-
         mutable.forEachIndexed { idx, portal ->
             if (portal.orderIndex != idx) {
                 updatePortalOrder(portal.id, idx)
@@ -77,8 +75,27 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addFavorite(favorite: FavoriteEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFavorites(favorites: List<FavoriteEntity>)
+
     @Query("DELETE FROM favorites WHERE portalId = :portalId AND contentType = :type AND itemId = :itemId")
     suspend fun removeFavorite(portalId: Long, type: String, itemId: String)
+
+    @Transaction
+    suspend fun applyBackupBatch(
+        portalsToInsert: List<PortalEntity>,
+        favoritesToInsert: List<FavoriteEntity>
+    ) {
+        if (portalsToInsert.isNotEmpty()) {
+            insertPortals(portalsToInsert)
+            if (getActivePortal() == null) {
+                getAllPortals().firstOrNull()?.let { setActivePortal(it.id) }
+            }
+        }
+        if (favoritesToInsert.isNotEmpty()) {
+            insertFavorites(favoritesToInsert)
+        }
+    }
 
     // ==================== سجل المشاهدة والاستئناف التلقائي ====================
     @Query("SELECT * FROM watch_history WHERE portalId = :portalId ORDER BY updatedAtMs DESC LIMIT 40")

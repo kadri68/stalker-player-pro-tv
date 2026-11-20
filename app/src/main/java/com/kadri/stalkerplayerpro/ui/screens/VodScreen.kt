@@ -1,6 +1,7 @@
 package com.kadri.stalkerplayerpro.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -363,9 +364,11 @@ fun VodScreen(
                 }
                 Spacer(modifier = Modifier.height(6.dp))
 
+                val catListState = rememberLazyListState()
                 LazyColumn(
+                    state = catListState,
                     verticalArrangement = Arrangement.spacedBy(5.dp),
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize().focusGroup()
                 ) {
                     itemsIndexed(
                         items = fullCategories,
@@ -384,6 +387,12 @@ fun VodScreen(
                                 .focusProperties {
                                     if (pagedItems.isNotEmpty()) {
                                         if (isAr) left = itemsEntryRequester else right = itemsEntryRequester
+                                        if (index == fullCategories.lastIndex) {
+                                            down = itemsEntryRequester
+                                        }
+                                    }
+                                    if (index > 0) {
+                                        up = FocusRequester.Default
                                     }
                                 }
                                 .tvFocusItem(
