@@ -144,6 +144,12 @@ fun TvPlayerScreen(
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val scope = rememberCoroutineScope()
     val liveSettings by settingsStore.settingsFlow.collectAsState(initial = settings)
+    LaunchedEffect(liveSettings.subTextColor, liveSettings.subFontSizeSp, liveSettings.subBgAlpha) {
+        subColor = liveSettings.subTextColor
+        subSizeSp = liveSettings.subFontSizeSp
+        subBgAlpha = liveSettings.subBgAlpha
+        controller.updateSubtitleAppearance(liveSettings.subTextColor, liveSettings.subFontSizeSp, liveSettings.subBgAlpha)
+    }
 
     var currentRequest by remember { mutableStateOf(initialRequest) }
     var currentChannelIdx by remember { mutableIntStateOf(initialRequest.currentChannelIndex) }
@@ -1086,7 +1092,7 @@ fun TvPlayerScreen(
                     subSizeSp = s
                     subBgAlpha = a
                     controller.updateSubtitleAppearance(c, s, a)
-                    scope.launch { settingsStore.updateSubtitleStyle(c, s, a) }
+                    scope.launch { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { settingsStore.updateSubtitleStyle(c, s, a) } }
                 },
                 onDismiss = { showSubtitleStyleDialog = false }
             )

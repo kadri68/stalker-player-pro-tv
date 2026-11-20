@@ -773,27 +773,29 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                             onClick = {
                                 scope.launch {
-                                    settingsStore.updateUnifiedAudioSubtitleSettings(
-                                        audioLang = selectedAudioLang,
-                                        subtitleLang = selectedSubLang,
-                                        subtitleEngine = selectedEngine,
-                                        osApiKey = osKey.trim(),
-                                        osUser = osUser.trim(),
-                                        osPass = osPass.trim(),
-                                        osToken = osToken.trim(),
-                                        osBaseUrl = osBaseUrl.trim(),
-                                        subdlApiKey = subdlKey.trim(),
-                                        subColor = selectedColor,
-                                        subSizeSp = selectedSize,
-                                        subBgAlpha = selectedAlpha
-                                    )
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                                        settingsStore.updateUnifiedAudioSubtitleSettings(
+                                            audioLang = selectedAudioLang,
+                                            subtitleLang = selectedSubLang,
+                                            subtitleEngine = selectedEngine,
+                                            osApiKey = osKey.trim(),
+                                            osUser = osUser.trim(),
+                                            osPass = osPass.trim(),
+                                            osToken = osToken.trim(),
+                                            osBaseUrl = osBaseUrl.trim(),
+                                            subdlApiKey = subdlKey.trim(),
+                                            subColor = selectedColor,
+                                            subSizeSp = selectedSize,
+                                            subBgAlpha = selectedAlpha
+                                        )
+                                    }
+                                    Toast.makeText(
+                                        context,
+                                        if (isAr) "تم حفظ جميع إعدادات الصوت والترجمة" else "All audio & subtitle settings saved",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    onDismiss()
                                 }
-                                Toast.makeText(
-                                    context,
-                                    if (isAr) "تم حفظ جميع إعدادات الصوت والترجمة" else "All audio & subtitle settings saved",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                onDismiss()
                             }
                         )
                         .padding(horizontal = 24.dp, vertical = 9.dp)
@@ -967,7 +969,9 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                                     if (res.success && res.token.isNotBlank()) {
                                         osToken = res.token
                                         osBaseUrl = res.baseUrl
-                                        settingsStore.updateOpenSubSession(res.token, res.baseUrl)
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                                            settingsStore.updateOpenSubSession(res.token, res.baseUrl)
+                                        }
                                     }
                                     isVerifyingLogin = false
                                 }
