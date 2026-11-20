@@ -144,12 +144,6 @@ fun TvPlayerScreen(
     val audioManager = remember(context) { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val scope = rememberCoroutineScope()
     val liveSettings by settingsStore.settingsFlow.collectAsState(initial = settings)
-    LaunchedEffect(liveSettings.subTextColor, liveSettings.subFontSizeSp, liveSettings.subBgAlpha) {
-        subColor = liveSettings.subTextColor
-        subSizeSp = liveSettings.subFontSizeSp
-        subBgAlpha = liveSettings.subBgAlpha
-        controller.updateSubtitleAppearance(liveSettings.subTextColor, liveSettings.subFontSizeSp, liveSettings.subBgAlpha)
-    }
 
     var currentRequest by remember { mutableStateOf(initialRequest) }
     var currentChannelIdx by remember { mutableIntStateOf(initialRequest.currentChannelIndex) }
@@ -245,6 +239,13 @@ fun TvPlayerScreen(
             delay(1300)
             activeGestureHud = null
         }
+    }
+
+    LaunchedEffect(liveSettings.subTextColor, liveSettings.subFontSizeSp, liveSettings.subBgAlpha) {
+        subColor = liveSettings.subTextColor
+        subSizeSp = liveSettings.subFontSizeSp
+        subBgAlpha = liveSettings.subBgAlpha
+        controller.updateSubtitleAppearance(liveSettings.subTextColor, liveSettings.subFontSizeSp, liveSettings.subBgAlpha)
     }
 
     var pendingRestoreEmbeddedSub by remember { mutableStateOf<SavedMovieSubtitle?>(null) }
