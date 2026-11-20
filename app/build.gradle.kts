@@ -13,8 +13,8 @@ android {
         applicationId = "com.kadri.stalkerplayerpro.tv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 19
-        versionName = "1.9.8"
+        versionCode = 20
+        versionName = "2.0.0"
     }
 
     splits {
@@ -26,10 +26,20 @@ android {
         }
     }
 
+    signingConfigs {
+        create("kadriRelease") {
+            storeFile = file("kadri_signing.jks")
+            storePassword = "kadri2026"
+            keyAlias = "kadrikey"
+            keyPassword = "kadri2026"
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
-            resValue("string", "app_name", "Stalker Player Pro v1.9.8")
+            signingConfig = signingConfigs.getByName("kadriRelease")
+            resValue("string", "app_name", "Stalker Player Pro v2.0.0")
         }
         release {
             isMinifyEnabled = true

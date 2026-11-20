@@ -68,6 +68,9 @@ interface AppDao {
     @Query("SELECT * FROM favorites WHERE portalId = :portalId AND contentType = :type ORDER BY addedAtMs DESC")
     fun observeFavorites(portalId: Long, type: String): Flow<List<FavoriteEntity>>
 
+    @Query("SELECT * FROM favorites ORDER BY addedAtMs DESC")
+    fun observeAllFavoritesGlobal(): Flow<List<FavoriteEntity>>
+
     @Query("SELECT * FROM favorites")
     suspend fun getAllFavorites(): List<FavoriteEntity>
 
@@ -106,4 +109,14 @@ interface AppDao {
 
     @Query("DELETE FROM locked_groups WHERE portalId = :portalId AND categoryId = :categoryId")
     suspend fun unlockGroup(portalId: Long, categoryId: String)
+
+    // ==================== قواعد المجموعات لكل سيرفر (إخفاء / قفل / الكبار) ====================
+    @Query("SELECT * FROM category_rules WHERE portalId = :portalId AND contentType = :contentType")
+    fun observeCategoryRules(portalId: Long, contentType: String): Flow<List<CategoryRuleEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCategoryRule(rule: CategoryRuleEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCategoryRules(rules: List<CategoryRuleEntity>)
 }

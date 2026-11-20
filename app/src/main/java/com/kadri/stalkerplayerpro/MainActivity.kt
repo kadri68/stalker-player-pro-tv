@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -90,6 +91,7 @@ import com.kadri.stalkerplayerpro.data.model.PlaybackRequest
 import com.kadri.stalkerplayerpro.player.TvPlayerScreen
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
 import com.kadri.stalkerplayerpro.ui.screens.BUILTIN_FREE_AR_M3U_URL
+import com.kadri.stalkerplayerpro.ui.screens.GlobalFavoritesScreen
 import com.kadri.stalkerplayerpro.ui.screens.LiveTvScreen
 import com.kadri.stalkerplayerpro.ui.screens.PortalsScreen
 import com.kadri.stalkerplayerpro.ui.screens.SettingsScreen
@@ -274,8 +276,9 @@ private enum class TvTab(
     LIVE(0, "البث المباشر", "Live TV", Icons.Default.LiveTv),
     MOVIES(1, "الأفلام", "Movies", Icons.Default.Movie),
     SERIES(2, "المسلسلات", "Series", Icons.Default.VideoLibrary),
-    PORTALS(3, "البوابات", "Portals", Icons.Default.Dns),
-    SETTINGS(4, "الإعدادات", "Settings", Icons.Default.Settings)
+    FAVORITES(3, "المفضلة", "Favorites", Icons.Default.Star),
+    PORTALS(4, "البوابات", "Portals", Icons.Default.Dns),
+    SETTINGS(5, "الإعدادات", "Settings", Icons.Default.Settings)
 }
 
 @Composable
@@ -547,6 +550,8 @@ private fun MainTvRoot(
                         portal = activePortal,
                         dao = dao,
                         isSeriesMode = false,
+                        parentalPin = settings.parentalPin,
+                        parentalPin = settings.parentalPin,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
                         lastFocusedItemId = lastFocusedMovieId,
@@ -561,6 +566,8 @@ private fun MainTvRoot(
                         portal = activePortal,
                         dao = dao,
                         isSeriesMode = true,
+                        parentalPin = settings.parentalPin,
+                        parentalPin = settings.parentalPin,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
                         lastFocusedItemId = lastFocusedSeriesId,
@@ -570,6 +577,12 @@ private fun MainTvRoot(
                             lastFocusedSeriesId = req.seriesId.ifBlank { req.itemId }
                             activePlayback = req
                         }
+                    )
+                    TvTab.FAVORITES.index -> GlobalFavoritesScreen(
+                        dao = dao,
+                        isAr = isAr,
+                        initialContentFocusRequester = contentFocusRequester,
+                        onPlayFavorite = { req -> activePlayback = req }
                     )
                     TvTab.PORTALS.index -> PortalsScreen(
                         dao = dao,

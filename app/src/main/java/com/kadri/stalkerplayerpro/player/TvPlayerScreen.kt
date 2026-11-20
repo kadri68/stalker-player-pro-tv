@@ -1048,10 +1048,118 @@ fun TvPlayerScreen(
 
         if (showEmbeddedSubtitlesDialog) {
             TvModalDialog(
-                title = if (isAr) "الترجمة المدمجة في الفيديو" else "Embedded Video Subtitles",
+                title = if (isAr) "الصوت والترجمة المدمجة ومظهرها" else "Audio, Embedded Subtitles & Style",
                 onDismiss = { showEmbeddedSubtitlesDialog = false },
-                maxWidth = 480.dp
+                maxWidth = 600.dp,
+                scrollableBody = true
             ) { firstRequester ->
+                Text(
+                    text = if (isAr) "مسارات الصوت المتاحة:" else "Available Audio Tracks:",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                if (controller.audioTracks.isEmpty()) {
+                    Text(
+                        text = if (isAr) "مسار صوت افتراضي واحد" else "Single default audio track",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        controller.audioTracks.forEach { track ->
+                            Box(
+                                modifier = Modifier
+                                    .tvFocusItem(
+                                        shape = RoundedCornerShape(8.dp),
+                                        unfocusedBackgroundColor = if (track.isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                        onClick = { controller.selectAudioTrack(track) }
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                Text(
+                                    text = track.label,
+                                    color = if (track.isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = if (isAr) "خصائص الترجمة (الحجم / اللون / الشفافية):" else "Subtitle Style (Size / Color / Opacity):",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(22f to (if (isAr) "صغير" else "S"), 28f to (if (isAr) "متوسط" else "M"), 34f to (if (isAr) "كبير" else "L"), 38f to (if (isAr) "كبير جداً" else "XL")).forEach { (spVal, lbl) ->
+                        val act = kotlin.math.abs(subSizeSp - spVal) < 1f
+                        Box(
+                            modifier = Modifier.weight(1f).tvFocusItem(
+                                shape = RoundedCornerShape(8.dp),
+                                unfocusedBackgroundColor = if (act) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = {
+                                    subSizeSp = spVal
+                                    controller.updateSubtitleAppearance(subColor, spVal, subBgAlpha)
+                                    scope.launch { settingsStore.updateSubtitleStyle(subColor, spVal, subBgAlpha) }
+                                }
+                            ).padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = lbl, color = if (act) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(0xFFFFFFFF to (if (isAr) "أبيض" else "White"), 0xFFFFD600 to (if (isAr) "أصفر" else "Yellow"), 0xFF00E5FF to (if (isAr) "سماوي" else "Cyan"), 0xFF00E676 to (if (isAr) "أخضر" else "Green")).forEach { (hex, lbl) ->
+                        val act = subColor == hex
+                        Box(
+                            modifier = Modifier.weight(1f).tvFocusItem(
+                                shape = RoundedCornerShape(8.dp),
+                                unfocusedBackgroundColor = if (act) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = {
+                                    subColor = hex
+                                    controller.updateSubtitleAppearance(hex, subSizeSp, subBgAlpha)
+                                    scope.launch { settingsStore.updateSubtitleStyle(hex, subSizeSp, subBgAlpha) }
+                                }
+                            ).padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = lbl, color = Color(hex), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    listOf(0f to "0%", 0.65f to "65%").forEach { (alVal, lbl) ->
+                        val act = kotlin.math.abs(subBgAlpha - alVal) < 0.08f
+                        Box(
+                            modifier = Modifier.tvFocusItem(
+                                shape = RoundedCornerShape(8.dp),
+                                unfocusedBackgroundColor = if (act) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = {
+                                    subBgAlpha = alVal
+                                    controller.updateSubtitleAppearance(subColor, subSizeSp, alVal)
+                                    scope.launch { settingsStore.updateSubtitleStyle(subColor, subSizeSp, alVal) }
+                                }
+                            ).padding(horizontal = 8.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(text = lbl, color = if (act) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = if (isAr) "مسارات الترجمة المدمجة في الفيلم:" else "Embedded Subtitle Tracks:",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
                 if (controller.embeddedSubtitleTracks.isEmpty()) {
                     Text(
                         text = if (isAr) "لا توجد ترجمة مدمجة داخل ملف الفيديو، يمكنك البحث عن ترجمة خارجية." else "No embedded subtitles in this stream. Try External Subtitles search.",
@@ -1655,6 +1763,24 @@ private fun LiveSideHistoryDrawer(
     }
 }
 
+
+private fun cleanMovieTitleForSubtitleSearch(raw: String): String {
+    if (raw.isBlank()) return ""
+    var s = raw
+    val yearMatch = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(s)
+    val year = yearMatch?.value.orEmpty()
+    s = s.replace(Regex("\\b(19\\d{2}|20\\d{2})[-/.]\\d{1,2}[-/.]\\d{1,2}\\b"), " ")
+    s = s.replace(Regex("\\b\\d{1,2}[-/.]\\d{1,2}[-/.](19\\d{2}|20\\d{2})\\b"), " ")
+    s = s.replace(Regex("\\[[^\\]]*\\]|\\([^)]*\\)|\\{[^}]*\\}"), " ")
+    s = s.replace(Regex("(?i)\\b(1080p|720p|480p|2160p|4k|uhd|fhd|hd|sd|bluray|blu-ray|bdrip|brrip|web-dl|webrip|hdrip|dvdrip|x264|x265|hevc|h264|h265|aac|ac3|dts|dual|multi|sub|subs|dubbed|vf|vostfr|ar|en|fr|tr)\\b"), " ")
+    s = s.replace(Regex("(مترجم|مدبلج|حصريا|حصري|جودة عالية|كامل|اون لاين|أون لاين)"), " ")
+    s = s.replace(Regex("\\b(19\\d{2}|20\\d{2})\\b"), " ")
+    s = s.replace(Regex("[|_•★☆~#*+=<>\\[\\](){}/\\\\]+"), " ")
+    s = s.replace(Regex("\\s+[-–—:]+\\s+"), " ")
+    s = s.replace(Regex("\\s+"), " ").trim(' ', '-', ':', '.', '_')
+    return if (year.isNotEmpty() && s.isNotEmpty()) "$s $year" else s.ifEmpty { raw.trim() }
+}
+
 @Composable
 private fun SubtitleSearchDialog(
     initialQuery: String,
@@ -1665,7 +1791,7 @@ private fun SubtitleSearchDialog(
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var searchBoxText by remember { mutableStateOf(initialQuery) }
+    var searchBoxText by remember(initialQuery) { mutableStateOf(cleanMovieTitleForSubtitleSearch(initialQuery)) }
     var selectedSubLang by remember {
         mutableStateOf(settings.preferredSubtitleLang.takeIf { it.isNotBlank() && it != "off" } ?: "ar")
     }
@@ -1674,6 +1800,8 @@ private fun SubtitleSearchDialog(
     var statusMsg by remember { mutableStateOf("") }
 
     fun executeDualSearch() {
+        val cleanedBeforeSearch = cleanMovieTitleForSubtitleSearch(searchBoxText)
+        if (cleanedBeforeSearch.isNotBlank()) searchBoxText = cleanedBeforeSearch
         if (searchBoxText.isBlank()) return
         scope.launch {
             isSearching = true

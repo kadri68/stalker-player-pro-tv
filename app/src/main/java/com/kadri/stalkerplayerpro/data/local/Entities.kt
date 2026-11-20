@@ -78,3 +78,17 @@ data class LockedGroupEntity(
     val categoryId: String,
     val categoryName: String
 )
+
+@Entity(
+    tableName = "category_rules",
+    indices = [Index(value = ["portalId", "contentType", "categoryId"], unique = true)]
+)
+data class CategoryRuleEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val portalId: Long,
+    val contentType: String, // LIVE, MOVIE, SERIES
+    val categoryId: String,
+    val categoryName: String,
+    val isHidden: Boolean = false,
+    val isLocked: Boolean = false
+)

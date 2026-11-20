@@ -11,9 +11,10 @@ import androidx.room.RoomDatabase
         FavoriteEntity::class,
         WatchHistoryEntity::class,
         ChannelOverrideEntity::class,
-        LockedGroupEntity::class
+        LockedGroupEntity::class,
+        CategoryRuleEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

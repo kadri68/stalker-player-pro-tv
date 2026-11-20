@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -66,6 +68,7 @@ import com.kadri.stalkerplayerpro.core.tv.TvSafeSearchBar
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
+import com.kadri.stalkerplayerpro.data.local.CategoryRuleEntity
 import com.kadri.stalkerplayerpro.data.local.PortalCacheStore
 import com.kadri.stalkerplayerpro.data.local.PortalEntity
 import com.kadri.stalkerplayerpro.data.local.WatchHistoryEntity
@@ -76,6 +79,7 @@ import com.kadri.stalkerplayerpro.data.model.VodItem
 import com.kadri.stalkerplayerpro.data.network.StalkerApiClient
 import com.kadri.stalkerplayerpro.data.network.XtreamApiClient
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
+import com.kadri.stalkerplayerpro.ui.components.TvPinDialog
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -86,6 +90,7 @@ fun VodScreen(
     portal: PortalEntity?,
     dao: AppDao,
     isSeriesMode: Boolean,
+    parentalPin: String = "0000",
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
     lastFocusedItemId: String? = null,
@@ -144,6 +149,15 @@ fun VodScreen(
     var isLoadingEpisodes by remember { mutableStateOf(false) }
 
     val watchHistory by dao.observeWatchHistory(portal.id).collectAsState(initial = emptyList())
+    val vodRuleType = if (isSeriesMode) "SERIES" else "MOVIE"
+    val categoryRules by dao.observeCategoryRules(portal.id, vodRuleType).collectAsState(initial = emptyList())
+    val rulesMap = remember(categoryRules) { categoryRules.associateBy { it.categoryId } }
+    val hiddenIdSet = remember(categoryRules) { categoryRules.filter { it.isHidden }.map { it.categoryId }.toSet() }
+    val lockedIdSet = remember(categoryRules) { categoryRules.filter { it.isLocked }.map { it.categoryId }.toSet() }
+    var unlockedSessionGroups by remember(portal.id, isSeriesMode) { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingPinCategory by remember { mutableStateOf<CategoryItem?>(null) }
+    var pinErrorText by remember { mutableStateOf<String?>(null) }
+    var showCategoryManager by remember(portal.id, isSeriesMode) { mutableStateOf(false) }
 
     LaunchedEffect(searchQuery) {
         delay(350)
@@ -226,7 +240,7 @@ fun VodScreen(
         buildList {
             add(CategoryItem("ALL", if (isAr) "الكل" else "All"))
             add(CategoryItem("HISTORY", if (isAr) "سجل المشاهدة" else "Continue Watching"))
-            addAll(categories)
+            addAll(categories.filter { it.id !in hiddenIdSet })
         }
     }
 
@@ -294,7 +308,7 @@ fun VodScreen(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .blockFocusWhen(selectedSeriesForEpisodes != null)
+                .blockFocusWhen(selectedSeriesForEpisodes != null || showCategoryManager || pendingPinCategory != null)
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -316,16 +330,37 @@ fun VodScreen(
                     }
                     .padding(10.dp)
             ) {
-                Text(
-                    text = if (isSeriesMode) {
-                        if (isAr) "أقسام المسلسلات" else "Series Categories"
-                    } else {
-                        if (isAr) "أقسام الأفلام" else "Movie Categories"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (isSeriesMode) {
+                            if (isAr) "أقسام المسلسلات" else "Series Categories"
+                        } else {
+                            if (isAr) "أقسام الأفلام" else "Movie Categories"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Box(
+                        modifier = Modifier
+                            .tvFocusItem(
+                                shape = RoundedCornerShape(8.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = { showCategoryManager = true }
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isAr) "إدارة" else "Manage",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(6.dp))
 
                 LazyColumn(
@@ -551,6 +586,87 @@ fun VodScreen(
                     }
                 }
             }
+        }
+
+        if (showCategoryManager) {
+            CategoryRulesManagerDialog(
+                portalName = portal.name,
+                sectionTitle = if (isSeriesMode) (if (isAr) "المسلسلات" else "Series") else (if (isAr) "الأفلام" else "Movies"),
+                categories = categories,
+                rulesMap = rulesMap,
+                isAr = isAr,
+                onToggleHidden = { cat, hide ->
+                    scope.launch {
+                        val existing = rulesMap[cat.id]
+                        dao.upsertCategoryRule(
+                            CategoryRuleEntity(
+                                id = existing?.id ?: 0L,
+                                portalId = portal.id,
+                                contentType = vodRuleType,
+                                categoryId = cat.id,
+                                categoryName = cat.name,
+                                isHidden = hide,
+                                isLocked = existing?.isLocked ?: false
+                            )
+                        )
+                        if (hide && selectedCategoryId == cat.id) selectedCategoryId = "ALL"
+                    }
+                },
+                onToggleLocked = { cat, lock ->
+                    scope.launch {
+                        val existing = rulesMap[cat.id]
+                        dao.upsertCategoryRule(
+                            CategoryRuleEntity(
+                                id = existing?.id ?: 0L,
+                                portalId = portal.id,
+                                contentType = vodRuleType,
+                                categoryId = cat.id,
+                                categoryName = cat.name,
+                                isHidden = existing?.isHidden ?: false,
+                                isLocked = lock
+                            )
+                        )
+                    }
+                },
+                onSetAllAdultHidden = { adultCats, hide ->
+                    scope.launch {
+                        val updates = adultCats.map { cat ->
+                            val existing = rulesMap[cat.id]
+                            CategoryRuleEntity(
+                                id = existing?.id ?: 0L,
+                                portalId = portal.id,
+                                contentType = vodRuleType,
+                                categoryId = cat.id,
+                                categoryName = cat.name,
+                                isHidden = hide,
+                                isLocked = existing?.isLocked ?: false
+                            )
+                        }
+                        dao.upsertCategoryRules(updates)
+                        if (hide && adultCats.any { it.id == selectedCategoryId }) selectedCategoryId = "ALL"
+                    }
+                },
+                onDismiss = { showCategoryManager = false }
+            )
+        }
+
+        pendingPinCategory?.let { targetCat ->
+            TvPinDialog(
+                title = if (isAr) "مجموعة محمية: ${targetCat.name}" else "Protected: ${targetCat.name}",
+                isAr = isAr,
+                errorMessage = pinErrorText,
+                onPinSubmitted = { entered ->
+                    if (entered == parentalPin) {
+                        unlockedSessionGroups = unlockedSessionGroups + targetCat.id
+                        selectedCategoryId = targetCat.id
+                        pendingPinCategory = null
+                        pinErrorText = null
+                    } else {
+                        pinErrorText = if (isAr) "رمز PIN غير صحيح" else "Incorrect PIN"
+                    }
+                },
+                onDismiss = { pendingPinCategory = null; pinErrorText = null }
+            )
         }
 
         selectedSeriesForEpisodes?.let { series ->

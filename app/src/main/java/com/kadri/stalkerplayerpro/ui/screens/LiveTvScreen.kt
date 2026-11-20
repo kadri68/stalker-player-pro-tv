@@ -73,6 +73,7 @@ import com.kadri.stalkerplayerpro.core.tv.TvSafeSearchBar
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
+import com.kadri.stalkerplayerpro.data.local.CategoryRuleEntity
 import com.kadri.stalkerplayerpro.data.local.ChannelOverrideEntity
 import com.kadri.stalkerplayerpro.data.local.FavoriteEntity
 import com.kadri.stalkerplayerpro.data.local.LockedGroupEntity
@@ -162,10 +163,16 @@ fun LiveTvScreen(
     val favorites by dao.observeFavorites(portal.id, "LIVE").collectAsState(initial = emptyList())
     val overrides by dao.observeChannelOverrides(portal.id).collectAsState(initial = emptyList())
     val lockedGroups by dao.observeLockedGroups(portal.id).collectAsState(initial = emptyList())
+    val categoryRules by dao.observeCategoryRules(portal.id, "LIVE").collectAsState(initial = emptyList())
+    val rulesMap = remember(categoryRules) { categoryRules.associateBy { it.categoryId } }
+    var showCategoryManager by remember(portal.id) { mutableStateOf(false) }
 
     val favIdSet = remember(favorites) { favorites.map { it.itemId }.toSet() }
     val overrideMap = remember(overrides) { overrides.associateBy { it.channelId } }
-    val lockedIdSet = remember(lockedGroups) { lockedGroups.map { it.categoryId }.toSet() }
+    val lockedIdSet = remember(lockedGroups, categoryRules) {
+        (lockedGroups.map { it.categoryId } + categoryRules.filter { it.isLocked }.map { it.categoryId }).toSet()
+    }
+    val hiddenIdSet = remember(categoryRules) { categoryRules.filter { it.isHidden }.map { it.categoryId }.toSet() }
 
     var pendingPinCategory by remember { mutableStateOf<CategoryItem?>(null) }
     var pendingPinActionLockToggle by remember { mutableStateOf<CategoryItem?>(null) }
@@ -177,7 +184,7 @@ fun LiveTvScreen(
     var epgPrograms by remember { mutableStateOf<List<EpgProgram>>(emptyList()) }
     var isLoadingEpg by remember { mutableStateOf(false) }
 
-    val anyPopupOpen = pendingPinCategory != null || pendingPinActionLockToggle != null ||
+    val anyPopupOpen = showCategoryManager || pendingPinCategory != null || pendingPinActionLockToggle != null ||
             channelForMenu != null || channelForRename != null || channelForEpg != null
 
     fun loadLiveContent(forceRefresh: Boolean = false) {
@@ -250,16 +257,17 @@ fun LiveTvScreen(
         loadLiveContent(forceRefresh = false)
     }
 
-    val fullCategories = remember(categories, isAr) {
+    val fullCategories = remember(categories, isAr, hiddenIdSet) {
         buildList {
             add(CategoryItem("ALL", if (isAr) "الكل" else "All Channels"))
             add(CategoryItem("FAV", if (isAr) "★ المفضلة" else "★ Favorites"))
-            addAll(categories)
+            addAll(categories.filter { it.id !in hiddenIdSet })
         }
     }
 
-    val filteredChannels = remember(rawChannels, selectedCategoryId, debouncedQuery, favIdSet, overrideMap) {
+    val filteredChannels = remember(rawChannels, selectedCategoryId, debouncedQuery, favIdSet, overrideMap, hiddenIdSet) {
         rawChannels.asSequence()
+            .filter { ch -> ch.categoryId !in hiddenIdSet }
             .mapNotNull { ch ->
                 val ov = overrideMap[ch.id]
                 if (ov?.isHidden == true) return@mapNotNull null
@@ -329,12 +337,33 @@ fun LiveTvScreen(
                     }
                     .padding(10.dp)
             ) {
-                Text(
-                    text = if (isAr) "المجموعات" else "Categories",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (isAr) "المجموعات" else "Categories",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Box(
+                        modifier = Modifier
+                            .tvFocusItem(
+                                shape = RoundedCornerShape(8.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = { showCategoryManager = true }
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isAr) "إدارة" else "Manage",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(6.dp))
 
                 LazyColumn(
@@ -543,6 +572,69 @@ fun LiveTvScreen(
                     }
                 }
             }
+        }
+
+        if (showCategoryManager) {
+            CategoryRulesManagerDialog(
+                portalName = portal.name,
+                sectionTitle = if (isAr) "القنوات" else "Live TV",
+                categories = categories,
+                rulesMap = rulesMap,
+                isAr = isAr,
+                onToggleHidden = { cat, hide ->
+                    scope.launch {
+                        val existing = rulesMap[cat.id]
+                        dao.upsertCategoryRule(
+                            CategoryRuleEntity(
+                                id = existing?.id ?: 0L,
+                                portalId = portal.id,
+                                contentType = "LIVE",
+                                categoryId = cat.id,
+                                categoryName = cat.name,
+                                isHidden = hide,
+                                isLocked = existing?.isLocked ?: (cat.id in lockedIdSet)
+                            )
+                        )
+                        if (hide && selectedCategoryId == cat.id) selectedCategoryId = "ALL"
+                    }
+                },
+                onToggleLocked = { cat, lock ->
+                    scope.launch {
+                        val existing = rulesMap[cat.id]
+                        dao.upsertCategoryRule(
+                            CategoryRuleEntity(
+                                id = existing?.id ?: 0L,
+                                portalId = portal.id,
+                                contentType = "LIVE",
+                                categoryId = cat.id,
+                                categoryName = cat.name,
+                                isHidden = existing?.isHidden ?: false,
+                                isLocked = lock
+                            )
+                        )
+                        if (!lock) dao.unlockGroup(portal.id, cat.id)
+                    }
+                },
+                onSetAllAdultHidden = { adultCats, hide ->
+                    scope.launch {
+                        val updates = adultCats.map { cat ->
+                            val existing = rulesMap[cat.id]
+                            CategoryRuleEntity(
+                                id = existing?.id ?: 0L,
+                                portalId = portal.id,
+                                contentType = "LIVE",
+                                categoryId = cat.id,
+                                categoryName = cat.name,
+                                isHidden = hide,
+                                isLocked = existing?.isLocked ?: (cat.id in lockedIdSet)
+                            )
+                        }
+                        dao.upsertCategoryRules(updates)
+                        if (hide && adultCats.any { it.id == selectedCategoryId }) selectedCategoryId = "ALL"
+                    }
+                },
+                onDismiss = { showCategoryManager = false }
+            )
         }
 
         pendingPinCategory?.let { cat ->
