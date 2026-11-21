@@ -146,17 +146,25 @@ fun PortalsScreen(
         if (idx >= 0) idx else 0
     }
     val listState = rememberLazyListState()
-    val quickActionsFirstRequester = remember { FocusRequester() }
-    val filterRowFirstRequester = remember { FocusRequester() }
-    val portalsEntryRequester = remember { FocusRequester() }
+    val quickRowScroll = rememberScrollState()
+    val filterRowScroll = rememberScrollState()
+    val quickRequesters = remember { List(8) { FocusRequester() } }
+    val filterRequesters = remember { List(4) { FocusRequester() } }
+    val portalRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
+    var didInitialFocus by remember { mutableStateOf(false) }
 
-    LaunchedEffect(displayedPortals.size, anyDialogOpen) {
-        if (displayedPortals.isNotEmpty() && !anyDialogOpen) {
-            if (targetFocusIndex > 0) {
-                runCatching { listState.scrollToItem(targetFocusIndex) }
+    LaunchedEffect(displayedPortals.isNotEmpty(), anyDialogOpen) {
+        if (!anyDialogOpen && !didInitialFocus) {
+            delay(90)
+            if (displayedPortals.isNotEmpty()) {
+                val startIdx = targetFocusIndex.coerceIn(0, displayedPortals.lastIndex)
+                if (startIdx > 0) runCatching { listState.scrollToItem(startIdx) }
+                delay(30)
+                runCatching { portalRequesters.getOrPut(startIdx) { FocusRequester() }.requestFocus() }
+            } else {
+                runCatching { quickRequesters[0].requestFocus() }
             }
-            delay(80)
-            runCatching { portalsEntryRequester.requestFocus() }
+            didInitialFocus = true
         }
     }
 
