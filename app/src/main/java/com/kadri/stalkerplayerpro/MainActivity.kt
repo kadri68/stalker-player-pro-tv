@@ -582,6 +582,7 @@ private fun MainTvRoot(
                     TvTab.FAVORITES.index -> GlobalFavoritesScreen(
                         dao = dao,
                         isAr = isAr,
+                        onNavigateToTopBar = { runCatching { tabRequesters[TvTab.FAVORITES.index].requestFocus() }.isSuccess },
                         initialContentFocusRequester = contentFocusRequester,
                         onPlayFavorite = { req -> activePlayback = req }
                     )
@@ -606,6 +607,7 @@ private fun MainTvRoot(
                         settingsStore = app.settingsStore,
                         isAr = isAr,
                         isTv = isTv,
+                        onNavigateToTopBar = { runCatching { tabRequesters[TvTab.SETTINGS.index].requestFocus() }.isSuccess },
                         initialContentFocusRequester = contentFocusRequester
                     )
                 }

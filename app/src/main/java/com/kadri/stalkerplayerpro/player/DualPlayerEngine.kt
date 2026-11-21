@@ -67,6 +67,7 @@ class DualPlayerController(
     private val context: Context,
     private val preferredAudioLang: String = "en",
     private val preferredSubtitleLang: String = "ar",
+    private val embeddedSubtitlesAutoEnabled: Boolean = true,
     initialSubColor: Long = 0xFFFFD600,
     initialSubSizeSp: Float = 36f,
     initialSubBgAlpha: Float = 0.65f
@@ -272,6 +273,10 @@ class DualPlayerController(
             }
 
             override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) {
+                if (hasExternalSubtitlesActive) {
+                    liveEmbeddedCueText = ""
+                    return
+                }
                 val combined = cueGroup.cues
                     .mapNotNull { it.text?.toString() }
                     .joinToString("\n")
@@ -420,7 +425,7 @@ class DualPlayerController(
                 "--file-caching=1200",
                 "--avcodec-hw=any",
                 "--codec=all",
-                "--sub-track=0",
+                "--sub-track=-1",
                 "--sub-margin=36",
                 "--freetype-bold",
                 "--freetype-color=$vlcRgb",
@@ -469,9 +474,13 @@ class DualPlayerController(
                     MediaPlayer.Event.ESAdded, MediaPlayer.Event.Vout -> {
                         refreshVlcAudioTracks(player)
                         refreshVlcSpuTracks(player)
-                        val activeSub = embeddedSubtitleTracks.find { it.isSelected }
-                        if (activeSub != null && activeSub.vlcSpuId >= 0 && player.spuTrack != activeSub.vlcSpuId) {
-                            player.spuTrack = activeSub.vlcSpuId
+                        if (hasExternalSubtitlesActive) {
+                            if (player.spuTrack != -1) player.spuTrack = -1
+                        } else {
+                            val activeSub = embeddedSubtitleTracks.find { it.isSelected }
+                            if (activeSub != null && activeSub.vlcSpuId >= 0 && player.spuTrack != activeSub.vlcSpuId) {
+                                player.spuTrack = activeSub.vlcSpuId
+                            }
                         }
                     }
                     MediaPlayer.Event.TimeChanged -> {
@@ -556,14 +565,14 @@ class DualPlayerController(
             }
         }
         embeddedSubtitleTracks = list
-        if (!hasAppliedInitialExoTextPref && !hasExternalSubtitlesActive && list.isNotEmpty()) {
+        if (hasExternalSubtitlesActive) {
+            selectEmbeddedSubtitleTrack(null)
+        } else if (!hasAppliedInitialExoTextPref && list.isNotEmpty()) {
             hasAppliedInitialExoTextPref = true
-            if (preferredSubtitleLang.equals("off", ignoreCase = true)) {
+            if (!embeddedSubtitlesAutoEnabled || preferredSubtitleLang.equals("off", ignoreCase = true)) {
                 selectEmbeddedSubtitleTrack(null)
             } else {
                 val target = list.find { matchesSubLang(it.language, it.label, preferredSubtitleLang) }
-                    ?: list.find { it.isSelected }
-                    ?: list.first()
                 selectEmbeddedSubtitleTrack(target)
             }
         }
@@ -582,19 +591,31 @@ class DualPlayerController(
             )
         }
         embeddedSubtitleTracks = list
-        if (!hasAppliedInitialVlcSpuPref && !hasExternalSubtitlesActive && list.isNotEmpty()) {
+        if (hasExternalSubtitlesActive) {
+            player.spuTrack = -1
+            embeddedSubtitleTracks = list.map { it.copy(isSelected = false) }
+        } else if (!hasAppliedInitialVlcSpuPref && list.isNotEmpty()) {
             hasAppliedInitialVlcSpuPref = true
-            if (preferredSubtitleLang.equals("off", ignoreCase = true)) {
+            if (!embeddedSubtitlesAutoEnabled || preferredSubtitleLang.equals("off", ignoreCase = true)) {
                 player.spuTrack = -1
                 embeddedSubtitleTracks = list.map { it.copy(isSelected = false) }
             } else {
                 val target = list.find { matchesSubLang(it.language, it.label, preferredSubtitleLang) }
-                    ?: list.find { it.isSelected }
-                    ?: list.first()
-                player.spuTrack = target.vlcSpuId
-                embeddedSubtitleTracks = list.map { it.copy(isSelected = it.id == target.id) }
+                if (target != null) {
+                    player.spuTrack = target.vlcSpuId
+                    embeddedSubtitleTracks = list.map { it.copy(isSelected = it.id == target.id) }
+                } else {
+                    player.spuTrack = -1
+                    embeddedSubtitleTracks = list.map { it.copy(isSelected = false) }
+                }
             }
         }
+    }
+
+    fun activateExternalSubtitlesMode() {
+        hasExternalSubtitlesActive = true
+        liveEmbeddedCueText = ""
+        selectEmbeddedSubtitleTrack(null)
     }
 
     fun selectEmbeddedSubtitleTrack(track: EmbeddedSubtitleTrackInfo?) {

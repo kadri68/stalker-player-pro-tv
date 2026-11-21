@@ -22,6 +22,7 @@ data class TvUserSettings(
     val autoPipEnabled: Boolean = true,
     val preferredAudioLang: String = "en",
     val preferredSubtitleLang: String = "ar",
+    val embeddedSubtitlesAutoEnabled: Boolean = true,
     val subtitleEngine: String = "BOTH",
     val openSubApiKey: String = "",
     val openSubUsername: String = "",
@@ -46,6 +47,7 @@ class SettingsDataStore(private val context: Context) {
         val KEY_AUTO_PIP = intPreferencesKey("auto_pip_enabled")
         val KEY_AUDIO_LANG = stringPreferencesKey("preferred_audio_lang")
         val KEY_SUBTITLE_LANG = stringPreferencesKey("preferred_subtitle_lang")
+        val KEY_EMBEDDED_SUBS_AUTO = intPreferencesKey("embedded_subs_auto")
 
         val KEY_SUBTITLE_ENGINE = stringPreferencesKey("subtitle_engine")
         val KEY_OS_API_KEY = stringPreferencesKey("os_api_key")
@@ -71,6 +73,7 @@ class SettingsDataStore(private val context: Context) {
             autoPipEnabled = (prefs[KEY_AUTO_PIP] ?: 1) == 1,
             preferredAudioLang = prefs[KEY_AUDIO_LANG] ?: "en",
             preferredSubtitleLang = prefs[KEY_SUBTITLE_LANG] ?: "ar",
+            embeddedSubtitlesAutoEnabled = (prefs[KEY_EMBEDDED_SUBS_AUTO] ?: 1) == 1,
             subtitleEngine = prefs[KEY_SUBTITLE_ENGINE] ?: "BOTH",
             openSubApiKey = prefs[KEY_OS_API_KEY] ?: "",
             openSubUsername = prefs[KEY_OS_USER] ?: "",
@@ -120,6 +123,10 @@ class SettingsDataStore(private val context: Context) {
         context.dataStore.edit { it[KEY_SUBTITLE_LANG] = lang }
     }
 
+    suspend fun updateEmbeddedSubtitlesAutoEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_EMBEDDED_SUBS_AUTO] = if (enabled) 1 else 0 }
+    }
+
     suspend fun updateSubtitleEngine(engine: String) {
         context.dataStore.edit { it[KEY_SUBTITLE_ENGINE] = engine }
     }
@@ -160,6 +167,7 @@ class SettingsDataStore(private val context: Context) {
     suspend fun updateUnifiedAudioSubtitleSettings(
         audioLang: String,
         subtitleLang: String,
+        embeddedSubtitlesAutoEnabled: Boolean = true,
         subtitleEngine: String,
         osApiKey: String,
         osUser: String,
@@ -174,6 +182,7 @@ class SettingsDataStore(private val context: Context) {
         context.dataStore.edit {
             it[KEY_AUDIO_LANG] = audioLang
             it[KEY_SUBTITLE_LANG] = subtitleLang
+            it[KEY_EMBEDDED_SUBS_AUTO] = if (embeddedSubtitlesAutoEnabled) 1 else 0
             it[KEY_SUBTITLE_ENGINE] = subtitleEngine
             it[KEY_OS_API_KEY] = osApiKey
             it[KEY_OS_USER] = osUser

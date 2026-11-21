@@ -164,6 +164,7 @@ fun TvPlayerScreen(
             context = context,
             preferredAudioLang = settings.preferredAudioLang,
             preferredSubtitleLang = settings.preferredSubtitleLang,
+            embeddedSubtitlesAutoEnabled = settings.embeddedSubtitlesAutoEnabled,
             initialSubColor = settings.subTextColor,
             initialSubSizeSp = settings.subFontSizeSp,
             initialSubBgAlpha = settings.subBgAlpha
@@ -309,8 +310,7 @@ fun TvPlayerScreen(
         controller.playStream(playableUrl, currentRequest.resumePositionMs, isLive = (currentRequest.contentType == "LIVE"))
 
         if (savedSub != null && savedSub.mode == "EXTERNAL" && savedSub.cues.isNotEmpty()) {
-            controller.hasExternalSubtitlesActive = true
-            controller.selectEmbeddedSubtitleTrack(null)
+            controller.activateExternalSubtitlesMode()
             Toast.makeText(
                 context,
                 if (isAr) "تم استئناف الترجمة المحفوظة (${savedSub.cues.size} سطر)" else "Resumed saved subtitle (${savedSub.cues.size} cues)",
@@ -1058,8 +1058,7 @@ fun TvPlayerScreen(
                 settingsStore = settingsStore,
                 isAr = isAr,
                 onSubtitleLoaded = { loadedCues ->
-                    controller.hasExternalSubtitlesActive = true
-                    controller.selectEmbeddedSubtitleTrack(null)
+                    controller.activateExternalSubtitlesMode()
                     subtitleCues = loadedCues
                     subtitleOffsetMs = 0L
                     if (currentRequest.contentType != "LIVE") {

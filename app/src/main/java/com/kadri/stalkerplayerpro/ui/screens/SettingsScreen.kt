@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -43,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,6 +63,7 @@ import com.kadri.stalkerplayerpro.core.theme.TvFontScale
 import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.BackupInspectionResult
 import com.kadri.stalkerplayerpro.data.local.BackupManager
@@ -82,7 +85,8 @@ fun SettingsScreen(
     settingsStore: SettingsDataStore,
     isAr: Boolean,
     isTv: Boolean,
-    initialContentFocusRequester: FocusRequester = remember { FocusRequester() }
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onNavigateToTopBar: () -> Boolean = { false }
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -168,8 +172,23 @@ fun SettingsScreen(
         else -> if (isAr) "كلاهما (OpenSubtitles + Subdl)" else "Both (OpenSubtitles + Subdl)"
     }
 
+    val settingsListState = rememberLazyListState()
+    val settingsRowRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
+    settingsRowRequesters[0] = initialContentFocusRequester
+    fun rowStepMod(rIdx: Int): Modifier = Modifier.tvVerticalStepItem(
+        index = rIdx,
+        totalCount = 10,
+        listState = settingsListState,
+        requesters = settingsRowRequesters,
+        scope = scope,
+        onExitTop = { onNavigateToTopBar() }
+    )
+    fun rowReq(rIdx: Int): FocusRequester =
+        if (rIdx == 0) initialContentFocusRequester else settingsRowRequesters.getOrPut(rIdx) { FocusRequester() }
+
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
+            state = settingsListState,
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxSize()
@@ -182,7 +201,8 @@ fun SettingsScreen(
                     title = if (isAr) "مظهر التطبيق والألوان" else "Application Theme",
                     valueText = if (isAr) currentTheme.titleAr else currentTheme.titleEn,
                     isAr = isAr,
-                    focusRequester = initialContentFocusRequester,
+                    focusRequester = rowReq(0),
+                    stepModifier = rowStepMod(0),
                     onClick = {
                         val next = (currentTheme.id + 1) % AppThemeId.entries.size
                         scope.launch { settingsStore.updateTheme(next) }
@@ -196,6 +216,8 @@ fun SettingsScreen(
                     title = if (isAr) "حجم خط الواجهة" else "UI Font Scale",
                     valueText = if (isAr) currentFont.labelAr else currentFont.labelEn,
                     isAr = isAr,
+                    focusRequester = rowReq(1),
+                    stepModifier = rowStepMod(1),
                     onClick = {
                         val next = (currentFont.id + 1) % TvFontScale.entries.size
                         scope.launch { settingsStore.updateFontScale(next) }
@@ -209,6 +231,8 @@ fun SettingsScreen(
                     title = if (isAr) "لغة الواجهة" else "Interface Language",
                     valueText = if (isAr) "العربية" else "English",
                     isAr = isAr,
+                    focusRequester = rowReq(2),
+                    stepModifier = rowStepMod(2),
                     onClick = {
                         val nextLang = if (isAr) "en" else "ar"
                         scope.launch { settingsStore.updateLanguage(nextLang) }
@@ -222,6 +246,8 @@ fun SettingsScreen(
                     title = if (isAr) "الساعة الرقمية في المشغل" else "Player Digital Clock",
                     valueText = if (settings.showClock) (if (isAr) "مفعّلة" else "Enabled") else (if (isAr) "مخفية" else "Hidden"),
                     isAr = isAr,
+                    focusRequester = rowReq(3),
+                    stepModifier = rowStepMod(3),
                     onClick = {
                         scope.launch { settingsStore.updateShowClock(!settings.showClock) }
                     }
@@ -234,6 +260,8 @@ fun SettingsScreen(
                     title = if (isAr) "رمز الرقابة الأبوية (PIN)" else "Parental Control PIN",
                     valueText = "****",
                     isAr = isAr,
+                    focusRequester = rowReq(4),
+                    stepModifier = rowStepMod(4),
                     onClick = { showPinDialog = true }
                 )
             }
@@ -241,11 +269,14 @@ fun SettingsScreen(
             item {
                 val audCode = settings.preferredAudioLang.uppercase()
                 val subCode = settings.preferredSubtitleLang.uppercase()
+                val embLabel = if (settings.embeddedSubtitlesAutoEnabled) (if (isAr) "مدمجة: تلقائي" else "Emb: Auto") else (if (isAr) "مدمجة: إيقاف" else "Emb: Off")
                 ClassicSettingsRow(
                     icon = Icons.Default.Subtitles,
                     title = if (isAr) "إعدادات الصوت والترجمة والحسابات" else "Audio, Subtitles & Accounts",
-                    valueText = if (isAr) "الصوت: $audCode | الترجمة: $subCode | ${settings.subFontSizeSp.roundToInt()}sp" else "Audio: $audCode | Sub: $subCode | ${settings.subFontSizeSp.roundToInt()}sp",
+                    valueText = if (isAr) "الصوت: $audCode | الترجمة: $subCode | $embLabel" else "Audio: $audCode | Sub: $subCode | $embLabel",
                     isAr = isAr,
+                    focusRequester = rowReq(5),
+                    stepModifier = rowStepMod(5),
                     onClick = { showUnifiedAudioSubDialog = true }
                 )
             }
@@ -256,6 +287,8 @@ fun SettingsScreen(
                     title = if (isAr) "تصدير نسخة احتياطية مخصصة" else "Export Custom Backup",
                     valueText = if (isAr) "تحديد البوابات / المفضلة / الإعدادات" else "Select Items",
                     isAr = isAr,
+                    focusRequester = rowReq(6),
+                    stepModifier = rowStepMod(6),
                     onClick = {
                         scope.launch {
                             val all = dao.getAllPortals().filter { it.url != BUILTIN_FREE_AR_M3U_URL }
@@ -279,6 +312,8 @@ fun SettingsScreen(
                     title = if (isAr) "استيراد نسخة احتياطية مخصصة" else "Import Custom Backup",
                     valueText = if (isAr) "انتقاء العناصر للاستعادة" else "Selective Restore",
                     isAr = isAr,
+                    focusRequester = rowReq(7),
+                    stepModifier = rowStepMod(7),
                     onClick = {
                         if (!isImportingBackup) {
                             scope.launch {
@@ -331,6 +366,8 @@ fun SettingsScreen(
                     title = if (isAr) "مساعد التطبيق ودليل الخدمات" else "App Assistant & Services Guide",
                     valueText = if (isAr) "شرح الميزات" else "All Features",
                     isAr = isAr,
+                    focusRequester = rowReq(8),
+                    stepModifier = rowStepMod(8),
                     onClick = { showAssistantDialog = true }
                 )
             }
@@ -341,6 +378,8 @@ fun SettingsScreen(
                     title = if (isAr) "حول التطبيق والمطور" else "About Application",
                     valueText = "v${com.kadri.stalkerplayerpro.BuildConfig.VERSION_NAME}",
                     isAr = isAr,
+                    focusRequester = rowReq(9),
+                    stepModifier = rowStepMod(9),
                     onClick = { showAboutDialog = true }
                 )
             }
@@ -783,6 +822,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
 
     var selectedAudioLang by remember { mutableStateOf(settings.preferredAudioLang) }
     var selectedSubLang by remember { mutableStateOf(settings.preferredSubtitleLang) }
+    var embeddedSubAuto by remember { mutableStateOf(settings.embeddedSubtitlesAutoEnabled) }
     var selectedEngine by remember { mutableStateOf(settings.subtitleEngine) }
 
     var osKey by remember { mutableStateOf(settings.openSubApiKey) }
@@ -882,6 +922,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                                         settingsStore.updateUnifiedAudioSubtitleSettings(
                                             audioLang = selectedAudioLang,
                                             subtitleLang = selectedSubLang,
+                                            embeddedSubtitlesAutoEnabled = embeddedSubAuto,
                                             subtitleEngine = selectedEngine,
                                             osApiKey = osKey.trim(),
                                             osUser = osUser.trim(),
@@ -950,7 +991,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = if (isAr) "2. لغة الترجمة الموحدة (المدمجة والخارجية):" else "2. Unified Subtitle Language (Embedded & External):",
+            text = if (isAr) "2. لغة الترجمة المفضلة (للبحث والترجمة المدمجة):" else "2. Preferred Subtitle Language:",
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Bold
@@ -980,6 +1021,62 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = if (isAr) "الترجمة المدمجة مع الفيلم (Embedded Subtitles):" else "Embedded Movie Subtitles:",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = if (embeddedSubAuto) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { embeddedSubAuto = true }
+                    )
+                    .padding(vertical = 8.dp, horizontal = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (isAr) "تشغيل (اللغة المختارة فقط)" else "On (Selected Language Only)",
+                    color = if (embeddedSubAuto) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .tvFocusItem(
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = if (!embeddedSubAuto) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        onClick = { embeddedSubAuto = false }
+                    )
+                    .padding(vertical = 8.dp, horizontal = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (isAr) "إيقاف (عدم التشغيل التلقائي)" else "Off (Manual Only)",
+                    color = if (!embeddedSubAuto) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = if (isAr) "ملاحظة: إذا لم تتوفر اللغة المختارة (مثل العربية) ضمن الترجمة المدمجة، تبقى غير مفعّلة تلقائياً إلا بطلبك من داخل المشغّل، وتُوقف فوراً عند تشغيل ترجمة خارجية." else "Note: If the selected language is not embedded, embedded subtitles stay OFF unless enabled manually, and auto-disable when external subtitles load.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -1252,11 +1349,13 @@ private fun ClassicSettingsRow(
     valueText: String,
     isAr: Boolean,
     focusRequester: FocusRequester? = null,
+    stepModifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(stepModifier)
             .tvFocusItem(
                 focusRequester = focusRequester,
                 shape = RoundedCornerShape(12.dp),
