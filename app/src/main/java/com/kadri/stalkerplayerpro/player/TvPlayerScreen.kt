@@ -101,6 +101,8 @@ import com.kadri.stalkerplayerpro.core.tv.LocaleUtils
 import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.TvFocusTrap
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+import com.kadri.stalkerplayerpro.core.tv.tvHorizontalStepItem
+import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.FavoriteEntity
 import com.kadri.stalkerplayerpro.data.local.SettingsDataStore
@@ -1099,11 +1101,14 @@ fun TvPlayerScreen(
         }
 
         if (showEmbeddedSubtitlesDialog) {
+            val closeEmbDlgReq = remember { FocusRequester() }
+            val embListState = rememberLazyListState()
+            val embItemReqs = remember(controller.embeddedSubtitleTracks.size) { mutableStateMapOf<Int, FocusRequester>() }
             TvModalDialog(
                 title = if (isAr) "الترجمة المدمجة في الفيديو" else "Embedded Video Subtitles",
                 onDismiss = { showEmbeddedSubtitlesDialog = false },
                 maxWidth = 500.dp,
-                scrollableBody = true
+                closeBtnRequester = closeEmbDlgReq
             ) { firstRequester ->
                 if (controller.embeddedSubtitleTracks.isEmpty()) {
                     Text(
@@ -1113,39 +1118,62 @@ fun TvPlayerScreen(
                     )
                 } else {
                     val noneSelected = controller.embeddedSubtitleTracks.none { it.isSelected } || controller.hasExternalSubtitlesActive
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .tvFocusItem(
-                                    focusRequester = firstRequester,
-                                    shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = if (noneSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
-                                    onClick = {
-                                        subtitleCues = emptyList()
-                                        controller.selectEmbeddedSubtitleTrack(null)
-                                        if (currentRequest.contentType != "LIVE") {
-                                            val k = SubtitleCacheStore.buildKey(currentRequest.portal.id, currentRequest.contentType, currentRequest.itemId, currentRequest.title)
-                                            SubtitleCacheStore.saveSubtitlesOff(context, k)
+                    val totalEmbRows = controller.embeddedSubtitleTracks.size + 1
+                    embItemReqs[0] = firstRequester
+                    LazyColumn(
+                        state = embListState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        item(key = "emb_off_row") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvVerticalStepItem(
+                                        index = 0, totalCount = totalEmbRows, listState = embListState,
+                                        requesters = embItemReqs, scope = scope,
+                                        onExitTop = { runCatching { closeEmbDlgReq.requestFocus() }.isSuccess }
+                                    )
+                                    .tvFocusItem(
+                                        focusRequester = firstRequester,
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = if (noneSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
+                                        onClick = {
+                                            subtitleCues = emptyList()
+                                            controller.selectEmbeddedSubtitleTrack(null)
+                                            if (currentRequest.contentType != "LIVE") {
+                                                val k = SubtitleCacheStore.buildKey(currentRequest.portal.id, currentRequest.contentType, currentRequest.itemId, currentRequest.title)
+                                                SubtitleCacheStore.saveSubtitlesOff(context, k)
+                                            }
+                                            showEmbeddedSubtitlesDialog = false
                                         }
-                                        showEmbeddedSubtitlesDialog = false
-                                    }
+                                    )
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (noneSelected) (if (isAr) "✓ إيقاف الترجمة المدمجة" else "✓ Off (Disabled)") else (if (isAr) "إيقاف الترجمة المدمجة" else "Off (Disabled)"),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
-                                .padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = if (noneSelected) (if (isAr) "✓ إيقاف الترجمة المدمجة" else "✓ Off (Disabled)") else (if (isAr) "إيقاف الترجمة المدمجة" else "Off (Disabled)"),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
+                            }
                         }
-                        controller.embeddedSubtitleTracks.forEachIndexed { tIdx, track ->
+                        itemsIndexed(
+                            items = controller.embeddedSubtitleTracks,
+                            key = { idx, tr -> "emb_tr_${tr.id}_$idx" }
+                        ) { tIdx, track ->
+                            val rowIdx = tIdx + 1
+                            val rReq = embItemReqs.getOrPut(rowIdx) { FocusRequester() }
                             val isTrackActive = track.isSelected && !controller.hasExternalSubtitlesActive
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .tvVerticalStepItem(
+                                        index = rowIdx, totalCount = totalEmbRows, listState = embListState,
+                                        requesters = embItemReqs, scope = scope
+                                    )
                                     .tvFocusItem(
+                                        focusRequester = rReq,
                                         shape = RoundedCornerShape(10.dp),
                                         unfocusedBackgroundColor = if (isTrackActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant,
                                         onClick = {
@@ -1181,10 +1209,14 @@ fun TvPlayerScreen(
         }
 
         if (showAudioTracksDialog) {
+            val closeAudDlgReq = remember { FocusRequester() }
+            val audListState = rememberLazyListState()
+            val audReqs = remember(controller.audioTracks.size) { mutableStateMapOf<Int, FocusRequester>() }
             TvModalDialog(
                 title = if (isAr) "مسارات الصوت المتاحة" else "Available Audio Tracks",
                 onDismiss = { showAudioTracksDialog = false },
-                maxWidth = 460.dp
+                maxWidth = 460.dp,
+                closeBtnRequester = closeAudDlgReq
             ) { firstRequester ->
                 if (controller.audioTracks.isEmpty()) {
                     Text(
@@ -1193,16 +1225,26 @@ fun TvPlayerScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    audReqs[0] = firstRequester
+                    LazyColumn(
+                        state = audListState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         itemsIndexed(
                             items = controller.audioTracks,
                             key = { idx, tr -> "aud_${tr.id}_$idx" }
                         ) { index, track ->
+                            val aReq = if (index == 0) firstRequester else audReqs.getOrPut(index) { FocusRequester() }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .tvVerticalStepItem(
+                                        index = index, totalCount = controller.audioTracks.size, listState = audListState,
+                                        requesters = audReqs, scope = scope,
+                                        onExitTop = { runCatching { closeAudDlgReq.requestFocus() }.isSuccess }
+                                    )
                                     .tvFocusItem(
-                                        focusRequester = if (index == 0) firstRequester else null,
+                                        focusRequester = aReq,
                                         shape = RoundedCornerShape(10.dp),
                                         unfocusedBackgroundColor = if (track.isSelected) {
                                             MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
@@ -1572,6 +1614,8 @@ private fun LiveSideChannelDrawer(
 ) {
     val safeStartIndex = currentIndex.coerceIn(0, (channels.size - 1).coerceAtLeast(0))
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = safeStartIndex)
+    val drawerScope = rememberCoroutineScope()
+    val chDrawerReqs = remember(channels.size) { mutableStateMapOf<Int, FocusRequester>() }
     val extraColors = LocalTvExtraColors.current
 
     Box(
@@ -1650,6 +1694,9 @@ private fun LiveSideHistoryDrawer(
     onDismiss: () -> Unit
 ) {
     val extraColors = LocalTvExtraColors.current
+    val histDrawerState = rememberLazyListState()
+    val histDrawerScope = rememberCoroutineScope()
+    val histDrawerReqs = remember(history.size) { mutableStateMapOf<Int, FocusRequester>() }
     TvFocusTrap(
         onDismiss = onDismiss,
         modifier = Modifier
@@ -1674,6 +1721,7 @@ private fun LiveSideHistoryDrawer(
                 )
             } else {
                 LazyColumn(
+                    state = histDrawerState,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
@@ -1681,11 +1729,17 @@ private fun LiveSideHistoryDrawer(
                         items = history,
                         key = { idx, entry -> "player_hist_${entry.id}_${entry.itemId}_$idx" }
                     ) { index, entry ->
+                        val hReq = if (index == 0) firstRequester else histDrawerReqs.getOrPut(index) { FocusRequester() }
+                        if (index == 0) histDrawerReqs[0] = firstRequester
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .tvVerticalStepItem(
+                                    index = index, totalCount = history.size, listState = histDrawerState,
+                                    requesters = histDrawerReqs, scope = histDrawerScope
+                                )
                                 .tvFocusItem(
-                                    focusRequester = if (index == 0) firstRequester else null,
+                                    focusRequester = hReq,
                                     shape = RoundedCornerShape(8.dp),
                                     unfocusedBackgroundColor = Color.White.copy(alpha = 0.08f),
                                     onClick = { onSelectEntry(entry) }
@@ -1998,11 +2052,21 @@ private fun SubtitleAppearanceDialog(
         0xFF00E676 to (if (isAr) "أخضر" else "Green"),
         0xFFFF9100 to (if (isAr) "برتقالي" else "Orange")
     )
+    val sizePresets = listOf(24f to "24sp", 36f to "36sp", 48f to "48sp", 64f to "64sp", 78f to "78sp", 90f to "90sp")
+    val alphaChoices = listOf(0f to "0%", 0.45f to "45%", 0.65f to "65%", 0.9f to "90%")
+
+    val closeAppReq = remember { FocusRequester() }
+    val cancelAppReq = remember { FocusRequester() }
+    val saveAppReq = remember { FocusRequester() }
+    val minusAppReq = remember { FocusRequester() }
+    val plusAppReq = remember { FocusRequester() }
+    val stepAppReqs = remember { listOf(minusAppReq, plusAppReq) }
 
     TvModalDialog(
         title = if (isAr) "تخصيص لون وحجم الترجمة" else "Subtitle Color & Font Size",
         onDismiss = onDismiss,
         maxWidth = 520.dp,
+        closeBtnRequester = closeAppReq,
         scrollableBody = true,
         footer = {
             Row(
@@ -2011,7 +2075,15 @@ private fun SubtitleAppearanceDialog(
             ) {
                 Box(
                     modifier = Modifier
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when {
+                                (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight) -> runCatching { saveAppReq.requestFocus() }.isSuccess
+                                else -> false
+                            }
+                        }
                         .tvFocusItem(
+                            focusRequester = cancelAppReq,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                             onClick = onDismiss
@@ -2026,7 +2098,15 @@ private fun SubtitleAppearanceDialog(
                 }
                 Box(
                     modifier = Modifier
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when {
+                                (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft) -> runCatching { cancelAppReq.requestFocus() }.isSuccess
+                                else -> false
+                            }
+                        }
                         .tvFocusItem(
+                            focusRequester = saveAppReq,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                             onClick = {
@@ -2045,6 +2125,10 @@ private fun SubtitleAppearanceDialog(
             }
         }
     ) { firstRequester ->
+        val cReqs = remember { List(colorChoices.size) { i -> if (i == 0) firstRequester else FocusRequester() } }
+        val pReqs = remember { List(sizePresets.size) { FocusRequester() } }
+        val aReqs = remember { List(alphaChoices.size) { FocusRequester() } }
+
         Text(
             text = if (isAr) "لون النص:" else "Text Color:",
             style = MaterialTheme.typography.titleSmall,
@@ -2057,8 +2141,13 @@ private fun SubtitleAppearanceDialog(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx, totalCount = colorChoices.size, requesters = cReqs, isAr = isAr,
+                            onUp = { runCatching { closeAppReq.requestFocus() }.isSuccess },
+                            onDown = { runCatching { minusAppReq.requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
-                            focusRequester = if (idx == 0) firstRequester else null,
+                            focusRequester = cReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedColor = hex }
@@ -2092,7 +2181,13 @@ private fun SubtitleAppearanceDialog(
             )
             Box(
                 modifier = Modifier
+                    .tvHorizontalStepItem(
+                        index = 0, totalCount = 2, requesters = stepAppReqs, isAr = isAr,
+                        onUp = { runCatching { cReqs[0].requestFocus() }.isSuccess },
+                        onDown = { runCatching { pReqs[0].requestFocus() }.isSuccess }
+                    )
                     .tvFocusItem(
+                        focusRequester = minusAppReq,
                         shape = RoundedCornerShape(8.dp),
                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { selectedSize = (selectedSize - 4f).coerceAtLeast(18f) }
@@ -2101,7 +2196,13 @@ private fun SubtitleAppearanceDialog(
             ) { LtrText("A-", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
             Box(
                 modifier = Modifier
+                    .tvHorizontalStepItem(
+                        index = 1, totalCount = 2, requesters = stepAppReqs, isAr = isAr,
+                        onUp = { runCatching { cReqs[0].requestFocus() }.isSuccess },
+                        onDown = { runCatching { pReqs[0].requestFocus() }.isSuccess }
+                    )
                     .tvFocusItem(
+                        focusRequester = plusAppReq,
                         shape = RoundedCornerShape(8.dp),
                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { selectedSize = (selectedSize + 4f).coerceAtMost(90f) }
@@ -2111,12 +2212,18 @@ private fun SubtitleAppearanceDialog(
         }
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(24f to "24sp", 36f to "36sp", 48f to "48sp", 64f to "64sp", 78f to "78sp", 90f to "90sp").forEach { (spVal, lbl) ->
+            sizePresets.forEachIndexed { idx, (spVal, lbl) ->
                 val active = selectedSize == spVal
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx, totalCount = sizePresets.size, requesters = pReqs, isAr = isAr,
+                            onUp = { runCatching { minusAppReq.requestFocus() }.isSuccess },
+                            onDown = { runCatching { aReqs[idx.coerceIn(0, aReqs.lastIndex)].requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
+                            focusRequester = pReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedSize = spVal }
@@ -2141,12 +2248,18 @@ private fun SubtitleAppearanceDialog(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(0f to "0%", 0.45f to "45%", 0.65f to "65%", 0.9f to "90%").forEach { (alphaVal, lbl) ->
-                val active = selectedAlpha == alphaVal
+            alphaChoices.forEachIndexed { idx, (alphaVal, lbl) ->
+                val active = kotlin.math.abs(selectedAlpha - alphaVal) < 0.08f
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx, totalCount = alphaChoices.size, requesters = aReqs, isAr = isAr,
+                            onUp = { runCatching { pReqs[idx.coerceIn(0, pReqs.lastIndex)].requestFocus() }.isSuccess },
+                            onDown = { runCatching { saveAppReq.requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
+                            focusRequester = aReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedAlpha = alphaVal }
@@ -2164,20 +2277,3 @@ private fun SubtitleAppearanceDialog(
         }
     }
 }
-
-private fun extractDigitChar(key: Key): Char? {
-    return when (key) {
-        Key.Zero, Key.NumPad0 -> '0'
-        Key.One, Key.NumPad1 -> '1'
-        Key.Two, Key.NumPad2 -> '2'
-        Key.Three, Key.NumPad3 -> '3'
-        Key.Four, Key.NumPad4 -> '4'
-        Key.Five, Key.NumPad5 -> '5'
-        Key.Six, Key.NumPad6 -> '6'
-        Key.Seven, Key.NumPad7 -> '7'
-        Key.Eight, Key.NumPad8 -> '8'
-        Key.Nine, Key.NumPad9 -> '9'
-        else -> null
-    }
-}
-

@@ -805,6 +805,15 @@ fun VodScreen(
                         }
                         Box(
                             modifier = Modifier
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
+                                        if (watchHistory.isNotEmpty()) {
+                                            runCatching { histRequesters[(watchHistory.size - 1).coerceAtLeast(0)]?.requestFocus() }.isSuccess
+                                        } else {
+                                            runCatching { closeHistBtnReq.requestFocus() }.isSuccess
+                                        }
+                                    } else false
+                                }
                                 .tvFocusItem(
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,

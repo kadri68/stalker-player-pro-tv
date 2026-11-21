@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -860,6 +861,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
     settings: TvUserSettings,
     settingsStore: SettingsDataStore,
     isAr: Boolean,
+    restoreFocusRequester: FocusRequester? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -950,6 +952,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         title = if (isAr) "إعدادات الصوت والترجمة والحسابات" else "Audio, Subtitles & Accounts",
         onDismiss = onDismiss,
         maxWidth = 640.dp,
+        restoreFocusRequester = restoreFocusRequester,
         closeBtnRequester = closeUnifiedReq,
         scrollableBody = true,
         footer = {
@@ -1247,6 +1250,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
+                .focusRequester(osKeyReq)
                 .onPreviewKeyEvent { ev ->
                     if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (ev.key) {
@@ -1255,7 +1259,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                         else -> false
                     }
                 }
-                .then(Modifier)
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1266,6 +1269,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                 singleLine = true,
                 modifier = Modifier
                     .weight(1f)
+                    .focusRequester(osUserReq)
                     .onPreviewKeyEvent { ev ->
                         if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (ev.key) {
@@ -1282,6 +1286,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                 singleLine = true,
                 modifier = Modifier
                     .weight(1f)
+                    .focusRequester(osPassReq)
                     .onPreviewKeyEvent { ev ->
                         if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (ev.key) {
@@ -1369,6 +1374,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
+                .focusRequester(subdlKeyReq)
                 .onPreviewKeyEvent { ev ->
                     if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (ev.key) {
@@ -1595,6 +1601,7 @@ private fun ClassicSettingsRow(
 @Composable
 private fun AppServicesAssistantDialog(
     isAr: Boolean,
+    restoreFocusRequester: FocusRequester? = null,
     onDismiss: () -> Unit
 ) {
     val sections = if (isAr) listOf(
@@ -1617,6 +1624,7 @@ private fun AppServicesAssistantDialog(
         title = if (isAr) "مساعد التطبيق ودليل الخدمات" else "App Assistant & Services Guide",
         onDismiss = onDismiss,
         maxWidth = 640.dp,
+        restoreFocusRequester = restoreFocusRequester,
         closeBtnRequester = closeAssistReq,
         scrollableBody = true,
         footer = {
