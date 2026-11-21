@@ -76,6 +76,8 @@ import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.CategoryRuleEntity
 import com.kadri.stalkerplayerpro.data.local.PortalCacheStore
 import com.kadri.stalkerplayerpro.data.local.PortalEntity
+import com.kadri.stalkerplayerpro.data.local.SettingsDataStore
+import com.kadri.stalkerplayerpro.data.local.TvUserSettings
 import com.kadri.stalkerplayerpro.data.local.WatchHistoryEntity
 import com.kadri.stalkerplayerpro.data.model.CategoryItem
 import com.kadri.stalkerplayerpro.data.model.EpisodeItem
@@ -245,7 +247,6 @@ fun VodScreen(
     val fullCategories = remember(categories, isAr) {
         buildList {
             add(CategoryItem("ALL", if (isAr) "الكل" else "All"))
-            add(CategoryItem("HISTORY", if (isAr) "سجل المشاهدة" else "Continue Watching"))
             addAll(categories.filter { it.id !in hiddenIdSet })
         }
     }
@@ -265,6 +266,9 @@ fun VodScreen(
     val gridState = rememberLazyGridState()
     val itemsEntryRequester = remember { FocusRequester() }
     val vodCatRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
+    val vodManageCatRequester = remember { FocusRequester() }
+    val vodTopBarRequesters = remember { List(3) { FocusRequester() } }
+    var showWatchHistoryDialog by remember { mutableStateOf(false) }
     var focusedVodCatId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(focusedVodCatId) {
@@ -324,7 +328,7 @@ fun VodScreen(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .blockFocusWhen(selectedSeriesForEpisodes != null || showCategoryManager || pendingPinCategory != null)
+                .blockFocusWhen(selectedSeriesForEpisodes != null || showCategoryManager || pendingPinCategory != null || showWatchHistoryDialog)
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -362,7 +366,17 @@ fun VodScreen(
                     )
                     Box(
                         modifier = Modifier
+                            .onPreviewKeyEvent { ev ->
+                                if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when {
+                                    ev.key == Key.DirectionUp -> onNavigateToTopBar()
+                                    ev.key == Key.DirectionDown -> runCatching { (vodCatRequesters[0] ?: initialContentFocusRequester).requestFocus() }.isSuccess
+                                    (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight) -> runCatching { vodTopBarRequesters[0].requestFocus() }.isSuccess
+                                    else -> false
+                                }
+                            }
                             .tvFocusItem(
+                                focusRequester = vodManageCatRequester,
                                 shape = RoundedCornerShape(8.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                 onClick = { showCategoryManager = true }
@@ -481,11 +495,75 @@ fun VodScreen(
                             if (isAr) "ابحث عن فيلم..." else "Search movies..."
                         },
                         onQueryChange = { searchQuery = it },
-                        modifier = Modifier.weight(1f)
+                        focusRequester = vodTopBarRequesters[0],
+                        isAr = isAr,
+                        searchHistory = settings.searchHistory,
+                        onSaveSearchQuery = { q -> scope.launch { settingsStore?.addSearchHistoryQuery(q) } },
+                        onClearSearchHistory = { scope.launch { settingsStore?.clearSearchHistory() } },
+                        modifier = Modifier
+                            .weight(1f)
+                            .tvHorizontalStepItem(
+                                index = 0,
+                                totalCount = 3,
+                                requesters = vodTopBarRequesters,
+                                isAr = isAr,
+                                onExitStart = { runCatching { (vodCatRequesters[0] ?: initialContentFocusRequester).requestFocus() }.isSuccess },
+                                onUp = { onNavigateToTopBar() },
+                                onDown = {
+                                    if (pagedItems.isNotEmpty()) runCatching { itemsEntryRequester.requestFocus() }.isSuccess else false
+                                }
+                            )
                     )
+                    Row(
+                        modifier = Modifier
+                            .tvHorizontalStepItem(
+                                index = 1,
+                                totalCount = 3,
+                                requesters = vodTopBarRequesters,
+                                isAr = isAr,
+                                onUp = { onNavigateToTopBar() },
+                                onDown = {
+                                    if (pagedItems.isNotEmpty()) runCatching { itemsEntryRequester.requestFocus() }.isSuccess else false
+                                }
+                            )
+                            .tvFocusItem(
+                                focusRequester = vodTopBarRequesters[1],
+                                shape = RoundedCornerShape(10.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = { showWatchHistoryDialog = true }
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isAr) "سجل المشاهدة (${watchHistory.size})" else "History (${watchHistory.size})",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
                     Box(
                         modifier = Modifier
+                            .tvHorizontalStepItem(
+                                index = 2,
+                                totalCount = 3,
+                                requesters = vodTopBarRequesters,
+                                isAr = isAr,
+                                onUp = { onNavigateToTopBar() },
+                                onDown = {
+                                    if (pagedItems.isNotEmpty()) runCatching { itemsEntryRequester.requestFocus() }.isSuccess else false
+                                }
+                            )
                             .tvFocusItem(
+                                focusRequester = vodTopBarRequesters[2],
                                 shape = RoundedCornerShape(10.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                 onClick = { fetchInitialData(selectedCategoryId, forceRefresh = true) }
@@ -503,28 +581,7 @@ fun VodScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (selectedCategoryId == "HISTORY") {
-                    WatchHistoryList(
-                        history = watchHistory,
-                        isAr = isAr,
-                        onResume = { entry ->
-                            onPlayVod(
-                                PlaybackRequest(
-                                    portal = portal,
-                                    contentType = entry.contentType,
-                                    itemId = entry.itemId,
-                                    seriesId = entry.seriesId,
-                                    title = entry.title,
-                                    subtitleQueryHint = entry.title,
-                                    posterOrLogo = entry.posterUrl,
-                                    streamCmdOrUrl = entry.streamCmdOrUrl,
-                                    containerExtension = entry.containerExtension,
-                                    resumePositionMs = entry.positionMs
-                                )
-                            )
-                        }
-                    )
-                } else {
+                run {
                     when {
                         isLoading -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -559,7 +616,13 @@ fun VodScreen(
                                 columns = GridCells.Adaptive(minSize = 145.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .onPreviewKeyEvent { ev ->
+                                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp && gridState.firstVisibleItemIndex == 0) {
+                                            runCatching { vodTopBarRequesters[0].requestFocus() }.isSuccess
+                                        } else false
+                                    }
                             ) {
                                 itemsIndexed(
                                     items = pagedItems,
@@ -691,6 +754,161 @@ fun VodScreen(
                 },
                 onDismiss = { pendingPinCategory = null; pinErrorText = null }
             )
+        }
+
+        if (showWatchHistoryDialog) {
+            val histListState = rememberLazyListState()
+            val histRequesters = remember(watchHistory.size) { mutableStateMapOf<Int, FocusRequester>() }
+            val clearHistoryBtnReq = remember { FocusRequester() }
+            val closeHistBtnReq = remember { FocusRequester() }
+            TvModalDialog(
+                title = if (isAr) "سجل المشاهدة (${watchHistory.size})" else "Watch History (${watchHistory.size})",
+                onDismiss = { showWatchHistoryDialog = false },
+                maxWidth = 640.dp,
+                closeBtnRequester = closeHistBtnReq,
+                footer = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.SpaceBetween),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (watchHistory.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .onPreviewKeyEvent { ev ->
+                                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
+                                            val lastIdx = (watchHistory.size - 1).coerceAtLeast(0)
+                                            runCatching { histRequesters[lastIdx]?.requestFocus() }.isSuccess
+                                        } else false
+                                    }
+                                    .tvFocusItem(
+                                        focusRequester = clearHistoryBtnReq,
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = MaterialTheme.colorScheme.error,
+                                        onClick = {
+                                            scope.launch { dao.clearWatchHistory(portal.id) }
+                                        }
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 9.dp)
+                            ) {
+                                Text(
+                                    text = if (isAr) "مسح السجل بالكامل" else "Clear All History",
+                                    color = MaterialTheme.colorScheme.onError,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.width(1.dp))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .tvFocusItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    onClick = { showWatchHistoryDialog = false }
+                                )
+                                .padding(horizontal = 20.dp, vertical = 9.dp)
+                        ) {
+                            Text(
+                                text = if (isAr) "إغلاق" else "Close",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            ) { firstReq ->
+                if (watchHistory.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = if (isAr) "سجل المشاهدة فارغ حالياً" else "Watch history is empty",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    histRequesters[0] = firstReq
+                    LazyColumn(
+                        state = histListState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(280.dp)
+                    ) {
+                        itemsIndexed(
+                            items = watchHistory,
+                            key = { idx, entry -> "hist_dlg_${entry.id}_${entry.itemId}_$idx" }
+                        ) { hIdx, entry ->
+                            val hReq = if (hIdx == 0) firstReq else histRequesters.getOrPut(hIdx) { FocusRequester() }
+                            val progress = if (entry.durationMs > 0L) {
+                                (entry.positionMs.toFloat() / entry.durationMs.toFloat()).coerceIn(0f, 1f)
+                            } else 0f
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvVerticalStepItem(
+                                        index = hIdx,
+                                        totalCount = watchHistory.size,
+                                        listState = histListState,
+                                        requesters = histRequesters,
+                                        scope = scope,
+                                        onExitTop = { runCatching { closeHistBtnReq.requestFocus() }.isSuccess },
+                                        onExitBottom = { runCatching { clearHistoryBtnReq.requestFocus() }.isSuccess }
+                                    )
+                                    .tvFocusItem(
+                                        focusRequester = hReq,
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                        onClick = {
+                                            showWatchHistoryDialog = false
+                                            onPlayVod(
+                                                PlaybackRequest(
+                                                    portal = portal,
+                                                    contentType = entry.contentType,
+                                                    itemId = entry.itemId,
+                                                    seriesId = entry.seriesId,
+                                                    title = entry.title,
+                                                    subtitleQueryHint = entry.title,
+                                                    posterOrLogo = entry.posterUrl,
+                                                    streamCmdOrUrl = entry.streamCmdOrUrl,
+                                                    containerExtension = entry.containerExtension,
+                                                    resumePositionMs = entry.positionMs
+                                                )
+                                            )
+                                        }
+                                    )
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = entry.title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    LtrText(
+                                        text = "${LocaleUtils.formatDuration(entry.positionMs)} / ${LocaleUtils.formatDuration(entry.durationMs)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         selectedSeriesForEpisodes?.let { series ->

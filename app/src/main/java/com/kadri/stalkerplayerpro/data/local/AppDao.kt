@@ -110,6 +110,9 @@ interface AppDao {
     @Query("DELETE FROM watch_history WHERE portalId = :portalId AND itemId = :itemId")
     suspend fun removeWatchHistory(portalId: Long, itemId: String)
 
+    @Query("DELETE FROM watch_history WHERE portalId = :portalId")
+    suspend fun clearWatchHistory(portalId: Long)
+
     // ==================== تخصيص القنوات (إعادة تسمية / إخفاء) ====================
     @Query("SELECT * FROM channel_overrides WHERE portalId = :portalId")
     fun observeChannelOverrides(portalId: Long): Flow<List<ChannelOverrideEntity>>

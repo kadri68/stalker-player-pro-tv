@@ -74,6 +74,7 @@ import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.TvSafeSearchBar
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+import com.kadri.stalkerplayerpro.core.tv.tvHorizontalStepItem
 import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.CategoryRuleEntity
@@ -82,6 +83,8 @@ import com.kadri.stalkerplayerpro.data.local.FavoriteEntity
 import com.kadri.stalkerplayerpro.data.local.LockedGroupEntity
 import com.kadri.stalkerplayerpro.data.local.PortalCacheStore
 import com.kadri.stalkerplayerpro.data.local.PortalEntity
+import com.kadri.stalkerplayerpro.data.local.SettingsDataStore
+import com.kadri.stalkerplayerpro.data.local.TvUserSettings
 import com.kadri.stalkerplayerpro.data.model.CategoryItem
 import com.kadri.stalkerplayerpro.data.model.ChannelItem
 import com.kadri.stalkerplayerpro.data.model.EpgProgram
@@ -296,6 +299,8 @@ fun LiveTvScreen(
     val channelsEntryRequester = remember { FocusRequester() }
     val catRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
     val channelRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
+    val manageCatRequester = remember { FocusRequester() }
+    val liveTopBarRequesters = remember { List(2) { FocusRequester() } }
     var focusedCatId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(focusedCatId) {
@@ -365,7 +370,17 @@ fun LiveTvScreen(
                     )
                     Box(
                         modifier = Modifier
+                            .onPreviewKeyEvent { ev ->
+                                if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when {
+                                    ev.key == Key.DirectionUp -> onNavigateToTopBar()
+                                    ev.key == Key.DirectionDown -> runCatching { (catRequesters[0] ?: initialContentFocusRequester).requestFocus() }.isSuccess
+                                    (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight) -> runCatching { liveTopBarRequesters[0].requestFocus() }.isSuccess
+                                    else -> false
+                                }
+                            }
                             .tvFocusItem(
+                                focusRequester = manageCatRequester,
                                 shape = RoundedCornerShape(8.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                 onClick = { showCategoryManager = true }
@@ -410,7 +425,7 @@ fun LiveTvScreen(
                                     listState = catListState,
                                     requesters = catRequesters,
                                     scope = scope,
-                                    onExitTop = { onNavigateToTopBar() },
+                                    onExitTop = { runCatching { manageCatRequester.requestFocus() }.isSuccess },
                                     onExitBottom = {
                                         if (filteredChannels.isNotEmpty()) {
                                             runCatching { channelsEntryRequester.requestFocus() }.isSuccess
@@ -508,11 +523,43 @@ fun LiveTvScreen(
                         query = searchQuery,
                         placeholder = if (isAr) "ابحث باسم القناة أو رقمها..." else "Search channel name or number...",
                         onQueryChange = { searchQuery = it },
-                        modifier = Modifier.weight(1f)
+                        focusRequester = liveTopBarRequesters[0],
+                        isAr = isAr,
+                        searchHistory = settings.searchHistory,
+                        onSaveSearchQuery = { q -> scope.launch { settingsStore?.addSearchHistoryQuery(q) } },
+                        onClearSearchHistory = { scope.launch { settingsStore?.clearSearchHistory() } },
+                        modifier = Modifier
+                            .weight(1f)
+                            .tvHorizontalStepItem(
+                                index = 0,
+                                totalCount = 2,
+                                requesters = liveTopBarRequesters,
+                                isAr = isAr,
+                                onExitStart = { runCatching { (catRequesters[0] ?: initialContentFocusRequester).requestFocus() }.isSuccess },
+                                onUp = { onNavigateToTopBar() },
+                                onDown = {
+                                    if (filteredChannels.isNotEmpty()) {
+                                        runCatching { (channelRequesters[0] ?: channelsEntryRequester).requestFocus() }.isSuccess
+                                    } else false
+                                }
+                            )
                     )
                     Box(
                         modifier = Modifier
+                            .tvHorizontalStepItem(
+                                index = 1,
+                                totalCount = 2,
+                                requesters = liveTopBarRequesters,
+                                isAr = isAr,
+                                onUp = { onNavigateToTopBar() },
+                                onDown = {
+                                    if (filteredChannels.isNotEmpty()) {
+                                        runCatching { (channelRequesters[0] ?: channelsEntryRequester).requestFocus() }.isSuccess
+                                    } else false
+                                }
+                            )
                             .tvFocusItem(
+                                focusRequester = liveTopBarRequesters[1],
                                 shape = RoundedCornerShape(10.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                 onClick = { loadLiveContent(forceRefresh = true) }
@@ -583,7 +630,7 @@ fun LiveTvScreen(
                                         listState = channelListState,
                                         requesters = channelRequesters,
                                         scope = scope,
-                                        onExitTop = { onNavigateToTopBar() }
+                                        onExitTop = { runCatching { liveTopBarRequesters[0].requestFocus() }.isSuccess }
                                     )
                                 ) {
                                 ChannelRowCard(

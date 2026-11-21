@@ -54,6 +54,8 @@ import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
 import com.kadri.stalkerplayerpro.core.tv.tvHorizontalStepItem
 import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
+import com.kadri.stalkerplayerpro.data.local.SettingsDataStore
+import com.kadri.stalkerplayerpro.data.local.TvUserSettings
 import com.kadri.stalkerplayerpro.data.local.FavoriteEntity
 import com.kadri.stalkerplayerpro.data.model.PlaybackRequest
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
@@ -63,6 +65,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun GlobalFavoritesScreen(
     dao: AppDao,
+    settings: TvUserSettings = TvUserSettings(),
+    settingsStore: SettingsDataStore? = null,
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
     onNavigateToTopBar: () -> Boolean = { false },
@@ -168,6 +172,10 @@ fun GlobalFavoritesScreen(
                     placeholder = if (isAr) "بحث في المفضلة الشاملة..." else "Search all favorites...",
                     onQueryChange = { searchQuery = it },
                     focusRequester = topBarRequesters[4],
+                    isAr = isAr,
+                    searchHistory = settings.searchHistory,
+                    onSaveSearchQuery = { q -> scope.launch { settingsStore?.addSearchHistoryQuery(q) } },
+                    onClearSearchHistory = { scope.launch { settingsStore?.clearSearchHistory() } },
                     modifier = Modifier
                         .weight(1f)
                         .tvHorizontalStepItem(

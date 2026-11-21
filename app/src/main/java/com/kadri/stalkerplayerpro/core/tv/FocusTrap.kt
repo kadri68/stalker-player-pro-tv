@@ -2,11 +2,16 @@ package com.kadri.stalkerplayerpro.core.tv
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,6 +21,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +47,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,7 +74,18 @@ fun TvFocusTrap(
     }
 
     Box(
-        modifier = modifier.focusGroup()
+        modifier = modifier
+            .focusGroup()
+            .onPreviewKeyEvent { ev ->
+                if (ev.type == KeyEventType.KeyDown &&
+                    (ev.key == Key.DirectionUp || ev.key == Key.DirectionDown)
+                ) {
+                    // منع تسرب التركيز خارج النافذة المنبثقة إذا لم يلتقطه عنصر داخلي
+                    true
+                } else {
+                    false
+                }
+            }
     ) {
         content(initialFocusRequester)
     }
@@ -111,11 +130,8 @@ fun Modifier.tvVerticalStepItem(
                 }
                 true
             } else {
-                if (onExitBottom != null && onExitBottom.invoke()) {
-                    true
-                } else {
-                    true
-                }
+                onExitBottom?.invoke()
+                true
             }
         }
         Key.DirectionUp -> {
@@ -145,8 +161,6 @@ fun Modifier.tvVerticalStepItem(
 
 /**
  * تحكم خطوي دقيق بالريموت داخل الأسطر الأفقية (Left / Right / Up / Down):
- * - ينتقل زراً تلو الآخر أفقياً مع التمرير التلقائي لإظهار الأزرار الطرفية.
- * - ينقل التركيز مباشرة للحقل المجاور عند الوصول لنهاية السطر أو الضغط Up / Down دون الحاجة لـ OK.
  */
 fun Modifier.tvHorizontalStepItem(
     index: Int,
@@ -202,7 +216,11 @@ fun TvSafeSearchBar(
     placeholder: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    isAr: Boolean = true,
+    searchHistory: List<String> = emptyList(),
+    onSaveSearchQuery: ((String) -> Unit)? = null,
+    onClearSearchHistory: (() -> Unit)? = null
 ) {
     var isEditing by remember { mutableStateOf(false) }
     val textFieldFocusRequester = remember { FocusRequester() }
@@ -222,75 +240,199 @@ fun TvSafeSearchBar(
             keyboardController?.show()
         }
 
-        Row(
-            modifier = modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(textFieldFocusRequester),
-                singleLine = true,
-                placeholder = {
-                    Text(
-                        text = placeholder,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(
-                    onSearch = {
-                        isEditing = false
-                        keyboardController?.hide()
-                        runCatching { buttonFocusRequester.requestFocus() }
-                    },
-                    onDone = {
-                        isEditing = false
-                        keyboardController?.hide()
-                        runCatching { buttonFocusRequester.requestFocus() }
-                    }
-                ),
-                shape = RoundedCornerShape(10.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                )
-            )
+        val visibleHistory = remember(searchHistory) { searchHistory.take(5) }
+        val totalHistoryItems = visibleHistory.size + if (visibleHistory.isNotEmpty() && onClearSearchHistory != null) 1 else 0
+        val historyRequesters = remember(totalHistoryItems) { List(totalHistoryItems) { FocusRequester() } }
 
-            if (query.isNotEmpty()) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Box(
+        Column(modifier = modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
                     modifier = Modifier
-                        .tvFocusItem(
-                            shape = RoundedCornerShape(10.dp),
-                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                            onClick = {
-                                onQueryChange("")
-                                isEditing = false
+                        .weight(1f)
+                        .focusRequester(textFieldFocusRequester)
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown && totalHistoryItems > 0) {
                                 keyboardController?.hide()
-                                runCatching { buttonFocusRequester.requestFocus() }
+                                runCatching { historyRequesters[0].requestFocus() }.isSuccess
+                            } else {
+                                false
                             }
+                        },
+                    singleLine = true,
+                    placeholder = {
+                        Text(
+                            text = placeholder,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        .padding(12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(18.dp)
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = {
+                            if (query.trim().length >= 2) onSaveSearchQuery?.invoke(query.trim())
+                            isEditing = false
+                            keyboardController?.hide()
+                            runCatching { buttonFocusRequester.requestFocus() }
+                        },
+                        onDone = {
+                            if (query.trim().length >= 2) onSaveSearchQuery?.invoke(query.trim())
+                            isEditing = false
+                            keyboardController?.hide()
+                            runCatching { buttonFocusRequester.requestFocus() }
+                        }
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
                     )
+                )
+
+                if (query.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .tvFocusItem(
+                                shape = RoundedCornerShape(10.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = {
+                                    onQueryChange("")
+                                    isEditing = false
+                                    keyboardController?.hide()
+                                    runCatching { buttonFocusRequester.requestFocus() }
+                                }
+                            )
+                            .padding(12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            if (visibleHistory.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f), RoundedCornerShape(10.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    visibleHistory.forEachIndexed { hIdx, itemText ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    when (ev.key) {
+                                        Key.DirectionDown -> {
+                                            if (hIdx < totalHistoryItems - 1) {
+                                                runCatching { historyRequesters[hIdx + 1].requestFocus() }.isSuccess
+                                            } else true
+                                        }
+                                        Key.DirectionUp -> {
+                                            if (hIdx > 0) {
+                                                runCatching { historyRequesters[hIdx - 1].requestFocus() }.isSuccess
+                                            } else {
+                                                runCatching { textFieldFocusRequester.requestFocus() }.isSuccess
+                                            }
+                                        }
+                                        else -> false
+                                    }
+                                }
+                                .tvFocusItem(
+                                    focusRequester = historyRequesters[hIdx],
+                                    shape = RoundedCornerShape(8.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    onClick = {
+                                        onQueryChange(itemText)
+                                        isEditing = false
+                                        keyboardController?.hide()
+                                        runCatching { buttonFocusRequester.requestFocus() }
+                                    }
+                                )
+                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = itemText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    if (onClearSearchHistory != null) {
+                        val clearIdx = visibleHistory.size
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
+                                        if (clearIdx > 0) {
+                                            runCatching { historyRequesters[clearIdx - 1].requestFocus() }.isSuccess
+                                        } else {
+                                            runCatching { textFieldFocusRequester.requestFocus() }.isSuccess
+                                        }
+                                    } else false
+                                }
+                                .tvFocusItem(
+                                    focusRequester = historyRequesters[clearIdx],
+                                    shape = RoundedCornerShape(8.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.22f),
+                                    onClick = {
+                                        onClearSearchHistory()
+                                        runCatching { textFieldFocusRequester.requestFocus() }
+                                    }
+                                )
+                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteSweep,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isAr) "مسح سجل البحث" else "Clear Search History",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }

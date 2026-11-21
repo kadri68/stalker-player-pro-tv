@@ -32,7 +32,8 @@ data class TvUserSettings(
     val subdlApiKey: String = "",
     val subTextColor: Long = 0xFFFFD600,
     val subFontSizeSp: Float = 38f,
-    val subBgAlpha: Float = 0.65f
+    val subBgAlpha: Float = 0.65f,
+    val searchHistory: List<String> = emptyList()
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -60,9 +61,16 @@ class SettingsDataStore(private val context: Context) {
         val KEY_SUB_COLOR = longPreferencesKey("sub_color")
         val KEY_SUB_SIZE = floatPreferencesKey("sub_size")
         val KEY_SUB_BG_ALPHA = floatPreferencesKey("sub_bg_alpha")
+        val KEY_SEARCH_HISTORY = stringPreferencesKey("search_history_list")
     }
 
     val settingsFlow: Flow<TvUserSettings> = context.dataStore.data.map { prefs ->
+        val rawHistory = prefs[KEY_SEARCH_HISTORY].orEmpty()
+        val parsedHistory = if (rawHistory.isBlank()) {
+            emptyList()
+        } else {
+            rawHistory.split("\n").map { it.trim() }.filter { it.isNotBlank() }.distinct().take(10)
+        }
         TvUserSettings(
             themeId = prefs[KEY_THEME_ID] ?: 0,
             fontScaleId = prefs[KEY_FONT_SCALE] ?: -1,
@@ -83,8 +91,28 @@ class SettingsDataStore(private val context: Context) {
             subdlApiKey = prefs[KEY_SUBDL_API_KEY] ?: "",
             subTextColor = prefs[KEY_SUB_COLOR] ?: 0xFFFFD600,
             subFontSizeSp = prefs[KEY_SUB_SIZE] ?: 38f,
-            subBgAlpha = prefs[KEY_SUB_BG_ALPHA] ?: 0.65f
+            subBgAlpha = prefs[KEY_SUB_BG_ALPHA] ?: 0.65f,
+            searchHistory = parsedHistory
         )
+    }
+
+    suspend fun addSearchHistoryQuery(query: String) {
+        val clean = query.trim()
+        if (clean.length < 2) return
+        context.dataStore.edit { prefs ->
+            val current = prefs[KEY_SEARCH_HISTORY].orEmpty()
+                .split("\n")
+                .map { it.trim() }
+                .filter { it.isNotBlank() && !it.equals(clean, ignoreCase = true) }
+            val updated = (listOf(clean) + current).take(10)
+            prefs[KEY_SEARCH_HISTORY] = updated.joinToString("\n")
+        }
+    }
+
+    suspend fun clearSearchHistory() {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_SEARCH_HISTORY] = ""
+        }
     }
 
     suspend fun updateTheme(themeId: Int) {

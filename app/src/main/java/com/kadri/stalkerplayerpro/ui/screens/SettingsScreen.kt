@@ -655,10 +655,31 @@ private fun SelectiveBackupDialog(
     var includeSubtitles by remember { mutableStateOf(showSubtitlesOption) }
     var includeSettings by remember { mutableStateOf(showSettingsOption) }
 
+    val totalCheckRows = portals.size + (if (showFavoritesOption) 1 else 0) + (if (showSubtitlesOption) 1 else 0) + (if (showSettingsOption) 1 else 0)
+    val closeDlgReq = remember { FocusRequester() }
+    val cancelBtnReq = remember { FocusRequester() }
+    val confirmBtnReq = remember { FocusRequester() }
+    val checkRowReqs = remember(totalCheckRows) { mutableStateMapOf<Int, FocusRequester>() }
+    fun stepCheckMod(idx: Int): Modifier = Modifier.onPreviewKeyEvent { ev ->
+        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when (ev.key) {
+            Key.DirectionUp -> {
+                if (idx > 0) runCatching { checkRowReqs[idx - 1]?.requestFocus() }.isSuccess
+                else runCatching { closeDlgReq.requestFocus() }.isSuccess
+            }
+            Key.DirectionDown -> {
+                if (idx < totalCheckRows - 1) runCatching { checkRowReqs[idx + 1]?.requestFocus() }.isSuccess
+                else runCatching { confirmBtnReq.requestFocus() }.isSuccess
+            }
+            else -> false
+        }
+    }
+
     TvModalDialog(
         title = title,
         onDismiss = onDismiss,
         maxWidth = 560.dp,
+        closeBtnRequester = closeDlgReq,
         scrollableBody = true,
         footer = {
             Row(
@@ -667,7 +688,16 @@ private fun SelectiveBackupDialog(
             ) {
                 Box(
                     modifier = Modifier
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when {
+                                ev.key == Key.DirectionUp -> runCatching { checkRowReqs[(totalCheckRows - 1).coerceAtLeast(0)]?.requestFocus() }.isSuccess
+                                (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight) -> runCatching { confirmBtnReq.requestFocus() }.isSuccess
+                                else -> false
+                            }
+                        }
                         .tvFocusItem(
+                            focusRequester = cancelBtnReq,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                             onClick = onDismiss
@@ -678,7 +708,16 @@ private fun SelectiveBackupDialog(
                 }
                 Box(
                     modifier = Modifier
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when {
+                                ev.key == Key.DirectionUp -> runCatching { checkRowReqs[(totalCheckRows - 1).coerceAtLeast(0)]?.requestFocus() }.isSuccess
+                                (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft) -> runCatching { cancelBtnReq.requestFocus() }.isSuccess
+                                else -> false
+                            }
+                        }
                         .tvFocusItem(
+                            focusRequester = confirmBtnReq,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                             onClick = {
@@ -700,6 +739,8 @@ private fun SelectiveBackupDialog(
             }
         }
     ) { firstRequester ->
+        checkRowReqs[0] = firstRequester
+        var rowCursor = 0
         var assignedFirst = false
 
         if (portals.isNotEmpty()) {
@@ -712,14 +753,13 @@ private fun SelectiveBackupDialog(
             Spacer(modifier = Modifier.height(6.dp))
             portals.forEach { p ->
                 val checked = p.uniqueKey in selectedPortalKeys
-                val req = if (!assignedFirst) {
-                    assignedFirst = true
-                    firstRequester
-                } else null
+                val cIdx = rowCursor++
+                val req = if (cIdx == 0) firstRequester else checkRowReqs.getOrPut(cIdx) { FocusRequester() }
                 BackupCheckRow(
                     label = "${p.name} [${p.protocol}]",
                     checked = checked,
                     focusRequester = req,
+                    stepModifier = stepCheckMod(cIdx),
                     onToggle = {
                         selectedPortalKeys = if (checked) {
                             selectedPortalKeys - p.uniqueKey
@@ -734,42 +774,39 @@ private fun SelectiveBackupDialog(
         }
 
         if (showFavoritesOption) {
-            val req = if (!assignedFirst) {
-                assignedFirst = true
-                firstRequester
-            } else null
+            val cIdx = rowCursor++
+            val req = if (cIdx == 0) firstRequester else checkRowReqs.getOrPut(cIdx) { FocusRequester() }
             BackupCheckRow(
                 label = (if (isAr) "قائمة المفضلة (Favorites)" else "Favorites List") + favoritesLabelSuffix,
                 checked = includeFavorites,
                 focusRequester = req,
+                stepModifier = stepCheckMod(cIdx),
                 onToggle = { includeFavorites = !includeFavorites }
             )
             Spacer(modifier = Modifier.height(6.dp))
         }
 
         if (showSubtitlesOption) {
-            val req = if (!assignedFirst) {
-                assignedFirst = true
-                firstRequester
-            } else null
+            val cIdx = rowCursor++
+            val req = if (cIdx == 0) firstRequester else checkRowReqs.getOrPut(cIdx) { FocusRequester() }
             BackupCheckRow(
                 label = if (isAr) "حسابات ومفاتيح الترجمة (OpenSubtitles / Subdl)" else "Subtitle Accounts & Keys",
                 checked = includeSubtitles,
                 focusRequester = req,
+                stepModifier = stepCheckMod(cIdx),
                 onToggle = { includeSubtitles = !includeSubtitles }
             )
             Spacer(modifier = Modifier.height(6.dp))
         }
 
         if (showSettingsOption) {
-            val req = if (!assignedFirst) {
-                assignedFirst = true
-                firstRequester
-            } else null
+            val cIdx = rowCursor++
+            val req = if (cIdx == 0) firstRequester else checkRowReqs.getOrPut(cIdx) { FocusRequester() }
             BackupCheckRow(
                 label = if (isAr) "إعدادات التطبيق (المظهر، الخط، الرقابة الأبوية)" else "Application Settings",
                 checked = includeSettings,
                 focusRequester = req,
+                stepModifier = stepCheckMod(cIdx),
                 onToggle = { includeSettings = !includeSettings }
             )
         }
@@ -781,11 +818,13 @@ private fun BackupCheckRow(
     label: String,
     checked: Boolean,
     focusRequester: FocusRequester? = null,
+    stepModifier: Modifier = Modifier,
     onToggle: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(stepModifier)
             .tvFocusItem(
                 focusRequester = focusRequester,
                 shape = RoundedCornerShape(8.dp),
@@ -1411,16 +1450,26 @@ private fun AppServicesAssistantDialog(
         Triple("4. Advanced Subtitles & Per-Movie Memory", "• Search OpenSubtitles & Subdl directly with automatic ZIP extraction.\n• Auto-Save per Movie: Approved subtitles are saved per movie/episode and restored automatically.\n• Unified clean styling with ASS tag stripping, preset sizes/colors, and +/- sync adjustment.", Icons.Default.Subtitles),
         Triple("5. Remote Shortcuts, Touch Gestures & PiP", "• Remote: Direct channel number entry, (0) for previous channel, (CH+/CH-) to zap, and (OK) for controls.\n• Touch: Vertical swipe right for volume, left for brightness.\n• PiP Mode: Watch in a floating picture-in-picture window.", Icons.Default.Palette)
     )
+    val closeAssistReq = remember { FocusRequester() }
+    val gotItBtnReq = remember { FocusRequester() }
+    val secReqs = remember(sections.size) { mutableStateMapOf<Int, FocusRequester>() }
     TvModalDialog(
         title = if (isAr) "مساعد التطبيق ودليل الخدمات" else "App Assistant & Services Guide",
         onDismiss = onDismiss,
         maxWidth = 640.dp,
+        closeBtnRequester = closeAssistReq,
         scrollableBody = true,
         footer = {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 Box(
                     modifier = Modifier
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
+                                runCatching { secReqs[sections.lastIndex]?.requestFocus() }.isSuccess
+                            } else false
+                        }
                         .tvFocusItem(
+                            focusRequester = gotItBtnReq,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                             onClick = onDismiss
@@ -1435,13 +1484,34 @@ private fun AppServicesAssistantDialog(
                 }
             }
         }
-    ) { _ ->
+    ) { firstReq ->
+        secReqs[0] = firstReq
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            sections.forEach { (heading, body, icon) ->
+            sections.forEachIndexed { sIdx, (heading, body, icon) ->
+                val sReq = if (sIdx == 0) firstReq else secReqs.getOrPut(sIdx) { FocusRequester() }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (ev.key) {
+                                Key.DirectionUp -> {
+                                    if (sIdx > 0) runCatching { secReqs[sIdx - 1]?.requestFocus() }.isSuccess
+                                    else runCatching { closeAssistReq.requestFocus() }.isSuccess
+                                }
+                                Key.DirectionDown -> {
+                                    if (sIdx < sections.lastIndex) runCatching { secReqs[sIdx + 1]?.requestFocus() }.isSuccess
+                                    else runCatching { gotItBtnReq.requestFocus() }.isSuccess
+                                }
+                                else -> false
+                            }
+                        }
+                        .tvFocusItem(
+                            focusRequester = sReq,
+                            shape = RoundedCornerShape(10.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            onClick = {}
+                        )
                         .padding(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

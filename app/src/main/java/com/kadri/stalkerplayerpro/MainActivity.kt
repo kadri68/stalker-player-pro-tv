@@ -534,6 +534,8 @@ private fun MainTvRoot(
                 when (selectedTab) {
                     TvTab.LIVE.index -> LiveTvScreen(
                         portal = activePortal,
+                        settings = settings,
+                        settingsStore = app.settingsStore,
                         onNavigateToTopBar = { runCatching { tabRequesters[TvTab.LIVE.index].requestFocus() }.isSuccess },
                         dao = dao,
                         parentalPin = settings.parentalPin,
@@ -550,6 +552,8 @@ private fun MainTvRoot(
                     TvTab.MOVIES.index -> VodScreen(
                         portal = activePortal,
                         dao = dao,
+                        settings = settings,
+                        settingsStore = app.settingsStore,
                         isSeriesMode = false,
                         onNavigateToTopBar = { runCatching { tabRequesters[TvTab.MOVIES.index].requestFocus() }.isSuccess },
                         parentalPin = settings.parentalPin,
@@ -566,6 +570,8 @@ private fun MainTvRoot(
                     TvTab.SERIES.index -> VodScreen(
                         portal = activePortal,
                         dao = dao,
+                        settings = settings,
+                        settingsStore = app.settingsStore,
                         isSeriesMode = true,
                         onNavigateToTopBar = { runCatching { tabRequesters[TvTab.SERIES.index].requestFocus() }.isSuccess },
                         parentalPin = settings.parentalPin,
@@ -581,6 +587,8 @@ private fun MainTvRoot(
                     )
                     TvTab.FAVORITES.index -> GlobalFavoritesScreen(
                         dao = dao,
+                        settings = settings,
+                        settingsStore = app.settingsStore,
                         isAr = isAr,
                         onNavigateToTopBar = { runCatching { tabRequesters[TvTab.FAVORITES.index].requestFocus() }.isSuccess },
                         initialContentFocusRequester = contentFocusRequester,
