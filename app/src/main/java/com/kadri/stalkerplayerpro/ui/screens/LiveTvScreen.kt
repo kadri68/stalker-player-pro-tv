@@ -108,6 +108,8 @@ private val liveSessionMemoryCache = java.util.concurrent.ConcurrentHashMap<Long
 fun LiveTvScreen(
     portal: PortalEntity?,
     dao: AppDao,
+    settings: TvUserSettings = TvUserSettings(),
+    settingsStore: SettingsDataStore? = null,
     parentalPin: String,
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },

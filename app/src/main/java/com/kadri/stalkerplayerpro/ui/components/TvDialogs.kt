@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -31,8 +32,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +43,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +57,7 @@ import com.kadri.stalkerplayerpro.core.theme.LocalTvExtraColors
 import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.TvFocusTrap
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 
 @Composable
 fun TvModalDialog(
@@ -56,12 +65,12 @@ fun TvModalDialog(
     onDismiss: () -> Unit,
     maxWidth: Dp = 560.dp,
     restoreFocusRequester: FocusRequester? = null,
+    closeBtnRequester: FocusRequester = remember { FocusRequester() },
     scrollableBody: Boolean = false,
     footer: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.(firstFocusRequester: FocusRequester) -> Unit
 ) {
     val extraColors = LocalTvExtraColors.current
-    val closeBtnRequester = remember { FocusRequester() }
 
     Box(
         modifier = Modifier
@@ -168,8 +177,20 @@ fun TvActionMenuDialog(
     onSelect: (TvMenuOption) -> Unit,
     onDismiss: () -> Unit
 ) {
-    TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 460.dp) { firstRequester ->
+    val scope = rememberCoroutineScope()
+    val menuListState = rememberLazyListState()
+    val closeBtnRequester = remember { FocusRequester() }
+    val optRequesters = remember(options.size) { mutableStateMapOf<Int, FocusRequester>() }
+
+    TvModalDialog(
+        title = title,
+        onDismiss = onDismiss,
+        maxWidth = 460.dp,
+        closeBtnRequester = closeBtnRequester
+    ) { firstRequester ->
+        optRequesters[0] = firstRequester
         LazyColumn(
+            state = menuListState,
             verticalArrangement = Arrangement.spacedBy(7.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -182,11 +203,20 @@ fun TvActionMenuDialog(
                 } else {
                     MaterialTheme.colorScheme.onSurface
                 }
+                val itemReq = if (index == 0) firstRequester else optRequesters.getOrPut(index) { FocusRequester() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .tvVerticalStepItem(
+                            index = index,
+                            totalCount = options.size,
+                            listState = menuListState,
+                            requesters = optRequesters,
+                            scope = scope,
+                            onExitTop = { runCatching { closeBtnRequester.requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
-                            focusRequester = if (index == 0) firstRequester else null,
+                            focusRequester = itemReq,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                             onClick = {
@@ -229,8 +259,18 @@ fun TvPinDialog(
     onDismiss: () -> Unit
 ) {
     var pin by remember { mutableStateOf("") }
+    val closeBtnRequester = remember { FocusRequester() }
 
-    TvModalDialog(title = title, onDismiss = onDismiss, maxWidth = 380.dp, scrollableBody = true) { firstRequester ->
+    TvModalDialog(
+        title = title,
+        onDismiss = onDismiss,
+        maxWidth = 380.dp,
+        closeBtnRequester = closeBtnRequester,
+        scrollableBody = true
+    ) { firstRequester ->
+        val padRequesters = remember {
+            List(4) { r -> List(3) { c -> if (r == 0 && c == 0) firstRequester else FocusRequester() } }
+        }
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -242,7 +282,6 @@ fun TvPinDialog(
                 modifier = Modifier.size(28.dp)
             )
             Spacer(modifier = Modifier.height(8.dp))
-
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -295,12 +334,35 @@ fun TvPinDialog(
                 rows.forEachIndexed { rIdx, row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         row.forEachIndexed { cIdx, key ->
-                            val isFirst = rIdx == 0 && cIdx == 0
                             Box(
                                 modifier = Modifier
                                     .size(width = 80.dp, height = 42.dp)
+                                    .onPreviewKeyEvent { ev ->
+                                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                        when (ev.key) {
+                                            Key.DirectionUp -> {
+                                                if (rIdx > 0) runCatching { padRequesters[rIdx - 1][cIdx].requestFocus() }.isSuccess
+                                                else runCatching { closeBtnRequester.requestFocus() }.isSuccess
+                                            }
+                                            Key.DirectionDown -> {
+                                                if (rIdx < 3) runCatching { padRequesters[rIdx + 1][cIdx].requestFocus() }.isSuccess
+                                                else true
+                                            }
+                                            Key.DirectionLeft -> {
+                                                val targetC = if (isAr) cIdx + 1 else cIdx - 1
+                                                if (targetC in 0..2) runCatching { padRequesters[rIdx][targetC].requestFocus() }.isSuccess
+                                                else true
+                                            }
+                                            Key.DirectionRight -> {
+                                                val targetC = if (isAr) cIdx - 1 else cIdx + 1
+                                                if (targetC in 0..2) runCatching { padRequesters[rIdx][targetC].requestFocus() }.isSuccess
+                                                else true
+                                            }
+                                            else -> false
+                                        }
+                                    }
                                     .tvFocusItem(
-                                        focusRequester = if (isFirst) firstRequester else null,
+                                        focusRequester = padRequesters[rIdx][cIdx],
                                         shape = RoundedCornerShape(8.dp),
                                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                         onClick = {

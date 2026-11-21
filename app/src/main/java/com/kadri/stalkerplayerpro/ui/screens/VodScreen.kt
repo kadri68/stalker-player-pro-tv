@@ -96,6 +96,8 @@ import kotlinx.coroutines.launch
 fun VodScreen(
     portal: PortalEntity?,
     dao: AppDao,
+    settings: TvUserSettings = TvUserSettings(),
+    settingsStore: SettingsDataStore? = null,
     isSeriesMode: Boolean,
     parentalPin: String = "0000",
     isAr: Boolean,
@@ -769,7 +771,7 @@ fun VodScreen(
                 footer = {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.SpaceBetween),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (watchHistory.isNotEmpty()) {
