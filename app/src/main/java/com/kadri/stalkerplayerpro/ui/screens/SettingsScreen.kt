@@ -68,6 +68,7 @@ import com.kadri.stalkerplayerpro.core.theme.TvFontScale
 import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+import com.kadri.stalkerplayerpro.core.tv.tvHorizontalStepItem
 import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.BackupInspectionResult
@@ -930,10 +931,26 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         90f to "90sp"
     )
 
+    val closeUnifiedReq = remember { FocusRequester() }
+    val cancelUnifiedReq = remember { FocusRequester() }
+    val saveUnifiedReq = remember { FocusRequester() }
+    val embOnReq = remember { FocusRequester() }
+    val embOffReq = remember { FocusRequester() }
+    val embReqs = remember { listOf(embOnReq, embOffReq) }
+    val osKeyReq = remember { FocusRequester() }
+    val osUserReq = remember { FocusRequester() }
+    val osPassReq = remember { FocusRequester() }
+    val osLoginReq = remember { FocusRequester() }
+    val subdlKeyReq = remember { FocusRequester() }
+    val sizeMinusReq = remember { FocusRequester() }
+    val sizePlusReq = remember { FocusRequester() }
+    val sizeStepReqs = remember { listOf(sizeMinusReq, sizePlusReq) }
+
     TvModalDialog(
         title = if (isAr) "إعدادات الصوت والترجمة والحسابات" else "Audio, Subtitles & Accounts",
         onDismiss = onDismiss,
         maxWidth = 640.dp,
+        closeBtnRequester = closeUnifiedReq,
         scrollableBody = true,
         footer = {
             Row(
@@ -942,7 +959,15 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             ) {
                 Box(
                     modifier = Modifier
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when {
+                                (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight) -> runCatching { saveUnifiedReq.requestFocus() }.isSuccess
+                                else -> false
+                            }
+                        }
                         .tvFocusItem(
+                            focusRequester = cancelUnifiedReq,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                             onClick = onDismiss
@@ -957,7 +982,15 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                 }
                 Box(
                     modifier = Modifier
+                        .onPreviewKeyEvent { ev ->
+                            if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when {
+                                (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft) -> runCatching { cancelUnifiedReq.requestFocus() }.isSuccess
+                                else -> false
+                            }
+                        }
                         .tvFocusItem(
+                            focusRequester = saveUnifiedReq,
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                             onClick = {
@@ -999,6 +1032,14 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             }
         }
     ) { firstRequester ->
+        val audioReqs = remember { List(audioLangOptions.size) { idx -> if (idx == 0) firstRequester else FocusRequester() } }
+        val subReqs = remember { List(subLangOptions.size) { FocusRequester() } }
+        val engineReqs = remember { List(engineOptions.size) { FocusRequester() } }
+        val colorReqs = remember { List(colorChoices.size) { FocusRequester() } }
+        val presetReqs = remember { List(sizePresets.size) { FocusRequester() } }
+        val alphaOptions = remember { listOf(0f to "0%", 0.45f to "45%", 0.65f to "65%", 0.9f to "90%") }
+        val alphaReqs = remember { List(alphaOptions.size) { FocusRequester() } }
+
         Text(
             text = if (isAr) "1. لغة الصوت المدمج المفضلة:" else "1. Preferred Embedded Audio Language:",
             style = MaterialTheme.typography.titleSmall,
@@ -1012,8 +1053,16 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx,
+                            totalCount = audioLangOptions.size,
+                            requesters = audioReqs,
+                            isAr = isAr,
+                            onUp = { runCatching { closeUnifiedReq.requestFocus() }.isSuccess },
+                            onDown = { runCatching { subReqs[idx.coerceIn(0, subReqs.lastIndex)].requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
-                            focusRequester = if (idx == 0) firstRequester else null,
+                            focusRequester = audioReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedAudioLang = code }
@@ -1033,7 +1082,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Text(
             text = if (isAr) "2. لغة الترجمة المفضلة (للبحث والترجمة المدمجة):" else "2. Preferred Subtitle Language:",
             style = MaterialTheme.typography.titleSmall,
@@ -1042,12 +1090,21 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            subLangOptions.forEach { (code, label) ->
+            subLangOptions.forEachIndexed { idx, (code, label) ->
                 val active = selectedSubLang.equals(code, ignoreCase = true)
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx,
+                            totalCount = subLangOptions.size,
+                            requesters = subReqs,
+                            isAr = isAr,
+                            onUp = { runCatching { audioReqs[idx.coerceIn(0, audioReqs.lastIndex)].requestFocus() }.isSuccess },
+                            onDown = { runCatching { embOnReq.requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
+                            focusRequester = subReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedSubLang = code }
@@ -1067,7 +1124,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Text(
             text = if (isAr) "الترجمة المدمجة مع الفيلم (Embedded Subtitles):" else "Embedded Movie Subtitles:",
             style = MaterialTheme.typography.titleSmall,
@@ -1079,7 +1135,13 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             Box(
                 modifier = Modifier
                     .weight(1f)
+                    .tvHorizontalStepItem(
+                        index = 0, totalCount = 2, requesters = embReqs, isAr = isAr,
+                        onUp = { runCatching { subReqs[0].requestFocus() }.isSuccess },
+                        onDown = { runCatching { engineReqs[0].requestFocus() }.isSuccess }
+                    )
                     .tvFocusItem(
+                        focusRequester = embOnReq,
                         shape = RoundedCornerShape(8.dp),
                         unfocusedBackgroundColor = if (embeddedSubAuto) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { embeddedSubAuto = true }
@@ -1098,7 +1160,13 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             Box(
                 modifier = Modifier
                     .weight(1f)
+                    .tvHorizontalStepItem(
+                        index = 1, totalCount = 2, requesters = embReqs, isAr = isAr,
+                        onUp = { runCatching { subReqs[0].requestFocus() }.isSuccess },
+                        onDown = { runCatching { engineReqs[0].requestFocus() }.isSuccess }
+                    )
                     .tvFocusItem(
+                        focusRequester = embOffReq,
                         shape = RoundedCornerShape(8.dp),
                         unfocusedBackgroundColor = if (!embeddedSubAuto) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { embeddedSubAuto = false }
@@ -1123,7 +1191,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         )
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Text(
             text = if (isAr) "3. محرك البحث عن الترجمة:" else "3. Subtitle Search Engine:",
             style = MaterialTheme.typography.titleSmall,
@@ -1132,12 +1199,21 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            engineOptions.forEach { (engCode, engLabel) ->
+            engineOptions.forEachIndexed { idx, (engCode, engLabel) ->
                 val active = selectedEngine.equals(engCode, ignoreCase = true)
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx,
+                            totalCount = engineOptions.size,
+                            requesters = engineReqs,
+                            isAr = isAr,
+                            onUp = { runCatching { embOnReq.requestFocus() }.isSuccess },
+                            onDown = { runCatching { osKeyReq.requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
+                            focusRequester = engineReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedEngine = engCode }
@@ -1157,7 +1233,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Text(
             text = if (isAr) "4. حسابات الترجمة (OpenSubtitles / Subdl):" else "4. Subtitle Accounts (OpenSubtitles / Subdl):",
             style = MaterialTheme.typography.titleSmall,
@@ -1170,7 +1245,17 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             onValueChange = { osKey = it },
             label = { Text("OpenSubtitles.com API Key") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .onPreviewKeyEvent { ev ->
+                    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (ev.key) {
+                        Key.DirectionUp -> runCatching { engineReqs[0].requestFocus() }.isSuccess
+                        Key.DirectionDown -> runCatching { osUserReq.requestFocus() }.isSuccess
+                        else -> false
+                    }
+                }
+                .then(Modifier)
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1179,14 +1264,32 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                 onValueChange = { osUser = it },
                 label = { Text("OpenSubtitles Username") },
                 singleLine = true,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (ev.key) {
+                            Key.DirectionUp -> runCatching { osKeyReq.requestFocus() }.isSuccess
+                            Key.DirectionDown -> runCatching { osLoginReq.requestFocus() }.isSuccess
+                            else -> false
+                        }
+                    }
             )
             OutlinedTextField(
                 value = osPass,
                 onValueChange = { osPass = it },
                 label = { Text("OpenSubtitles Password") },
                 singleLine = true,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (ev.key) {
+                            Key.DirectionUp -> runCatching { osKeyReq.requestFocus() }.isSuccess
+                            Key.DirectionDown -> runCatching { osLoginReq.requestFocus() }.isSuccess
+                            else -> false
+                        }
+                    }
             )
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -1197,7 +1300,16 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         ) {
             Box(
                 modifier = Modifier
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (ev.key) {
+                            Key.DirectionUp -> runCatching { osUserReq.requestFocus() }.isSuccess
+                            Key.DirectionDown -> runCatching { subdlKeyReq.requestFocus() }.isSuccess
+                            else -> false
+                        }
+                    }
                     .tvFocusItem(
+                        focusRequester = osLoginReq,
                         shape = RoundedCornerShape(8.dp),
                         unfocusedBackgroundColor = Color(0xFF00897B),
                         onClick = {
@@ -1255,11 +1367,19 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             onValueChange = { subdlKey = it },
             label = { Text("Subdl.com API Key") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .onPreviewKeyEvent { ev ->
+                    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (ev.key) {
+                        Key.DirectionUp -> runCatching { osLoginReq.requestFocus() }.isSuccess
+                        Key.DirectionDown -> runCatching { colorReqs[0].requestFocus() }.isSuccess
+                        else -> false
+                    }
+                }
         )
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Text(
             text = if (isAr) "5. لون نص الترجمة:" else "5. Subtitle Text Color:",
             style = MaterialTheme.typography.titleSmall,
@@ -1268,12 +1388,21 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            colorChoices.forEach { (hex, label) ->
+            colorChoices.forEachIndexed { idx, (hex, label) ->
                 val active = selectedColor == hex
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx,
+                            totalCount = colorChoices.size,
+                            requesters = colorReqs,
+                            isAr = isAr,
+                            onUp = { runCatching { subdlKeyReq.requestFocus() }.isSuccess },
+                            onDown = { runCatching { sizeMinusReq.requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
+                            focusRequester = colorReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedColor = hex }
@@ -1293,7 +1422,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1308,7 +1436,13 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             )
             Box(
                 modifier = Modifier
+                    .tvHorizontalStepItem(
+                        index = 0, totalCount = 2, requesters = sizeStepReqs, isAr = isAr,
+                        onUp = { runCatching { colorReqs[0].requestFocus() }.isSuccess },
+                        onDown = { runCatching { presetReqs[0].requestFocus() }.isSuccess }
+                    )
                     .tvFocusItem(
+                        focusRequester = sizeMinusReq,
                         shape = RoundedCornerShape(8.dp),
                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { selectedSize = (selectedSize - 4f).coerceAtLeast(18f) }
@@ -1317,7 +1451,13 @@ private fun UnifiedAudioSubtitleSettingsDialog(
             ) { LtrText("A-", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold) }
             Box(
                 modifier = Modifier
+                    .tvHorizontalStepItem(
+                        index = 1, totalCount = 2, requesters = sizeStepReqs, isAr = isAr,
+                        onUp = { runCatching { colorReqs[0].requestFocus() }.isSuccess },
+                        onDown = { runCatching { presetReqs[0].requestFocus() }.isSuccess }
+                    )
                     .tvFocusItem(
+                        focusRequester = sizePlusReq,
                         shape = RoundedCornerShape(8.dp),
                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { selectedSize = (selectedSize + 4f).coerceAtMost(90f) }
@@ -1327,12 +1467,21 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         }
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            sizePresets.forEach { (spVal, lbl) ->
+            sizePresets.forEachIndexed { idx, (spVal, lbl) ->
                 val active = kotlin.math.abs(selectedSize - spVal) < 2f
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx,
+                            totalCount = sizePresets.size,
+                            requesters = presetReqs,
+                            isAr = isAr,
+                            onUp = { runCatching { sizeMinusReq.requestFocus() }.isSuccess },
+                            onDown = { runCatching { alphaReqs[idx.coerceIn(0, alphaReqs.lastIndex)].requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
+                            focusRequester = presetReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedSize = spVal }
@@ -1351,7 +1500,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-
         Text(
             text = if (isAr) "7. شفافية خلفية الترجمة:" else "7. Background Opacity:",
             style = MaterialTheme.typography.titleSmall,
@@ -1360,12 +1508,21 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(0f to "0%", 0.45f to "45%", 0.65f to "65%", 0.9f to "90%").forEach { (alphaVal, lbl) ->
+            alphaOptions.forEachIndexed { idx, (alphaVal, lbl) ->
                 val active = kotlin.math.abs(selectedAlpha - alphaVal) < 0.08f
                 Box(
                     modifier = Modifier
                         .weight(1f)
+                        .tvHorizontalStepItem(
+                            index = idx,
+                            totalCount = alphaOptions.size,
+                            requesters = alphaReqs,
+                            isAr = isAr,
+                            onUp = { runCatching { presetReqs[idx.coerceIn(0, presetReqs.lastIndex)].requestFocus() }.isSuccess },
+                            onDown = { runCatching { saveUnifiedReq.requestFocus() }.isSuccess }
+                        )
                         .tvFocusItem(
+                            focusRequester = alphaReqs[idx],
                             shape = RoundedCornerShape(8.dp),
                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                             onClick = { selectedAlpha = alphaVal }
@@ -1383,8 +1540,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         }
     }
 }
-
-
 
 @Composable
 private fun ClassicSettingsRow(

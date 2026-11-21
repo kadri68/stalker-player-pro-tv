@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
@@ -107,8 +108,12 @@ fun TvModalDialog(
                     Spacer(modifier = Modifier.width(10.dp))
                     Box(
                         modifier = Modifier
-                            .focusProperties {
-                                down = firstRequester
+                            .onKeyEvent { ev ->
+                                if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown) {
+                                    runCatching { firstRequester.requestFocus() }.isSuccess
+                                } else {
+                                    false
+                                }
                             }
                             .tvFocusItem(
                                 focusRequester = closeBtnRequester,

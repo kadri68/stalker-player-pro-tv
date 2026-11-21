@@ -44,6 +44,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -76,7 +77,7 @@ fun TvFocusTrap(
     Box(
         modifier = modifier
             .focusGroup()
-            .onPreviewKeyEvent { ev ->
+            .onKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown &&
                     (ev.key == Key.DirectionUp || ev.key == Key.DirectionDown)
                 ) {
