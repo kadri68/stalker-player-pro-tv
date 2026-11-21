@@ -2,9 +2,9 @@ package com.kadri.stalkerplayerpro.player
 
 /**
  * منظّف احترافي لأسماء الأفلام والمسلسلات قبل البحث عن الترجمة:
- * - يحافظ بالكامل على رموز وأرقام الحلقات والمواسم والمسلسلات (S01E05, 1x05, Season, Episode, الموسم, الحلقة, الجزء)
+ * - يصفّي اسم المسلسل بالكامل من أرقام ورموز المواسم والفصول والحلقات (S01E05, 1x05, Season, Episode, Chapter, الموسم, الفصل, الحلقة, الجزء)
  * - يزيل العلامات المحصورة بين القضبان وعلامات التنصيص والأقواس لجميع اللغات مثل ┃EN┃ ┃NL┃
- * - يزيل بادئات ولواحق السيرفرات والتصنيفات والمنصات والجودات وفرق الرفع قبل أو بعد الاسم
+ * - يزيل بادئات ولواحق السيرفرات والتصنيفات والمنصات والجودات وفرق الرفع
  * - يعالج العناوين المزدوجة (عربي / إنجليزي) والعناوين المركبة ذات النقطتين
  * - يحافظ على سنة الإنتاج في نهاية العنوان
  */
@@ -20,26 +20,19 @@ fun cleanMovieTitleForSubtitleSearch(raw: String): String {
     s = s.replace(Regex("""\b(19\d{2}|20\d{2})[-/.]\d{1,2}[-/.]\d{1,2}\b"""), " ")
     s = s.replace(Regex("""\b\d{1,2}[-/.]\d{1,2}[-/.](19\d{2}|20\d{2})\b"""), " ")
 
-    // توحيد صيغ الحلقات والمواسم مثل S01.E05 أو S01-E05 أو (S01E05) إلى S01E05 مع الحفاظ عليها
-    s = s.replace(Regex("""(?i)[\[(]?\bS(\d{1,2})\s*[.\-_]?\s*E(\d{1,3})\b[\])]?""")) { m ->
-        val season = m.groupValues[1].padStart(2, '0')
-        val ep = m.groupValues[2].padStart(2, '0')
-        " S${season}E${ep} "
-    }
-
-    // 2. إزالة العلامات المحصورة بين القضبان العمودية والأقواس المزخرفة لجميع اللغات (┃EN┃ ┃NL┃ │AR│ |FR| 【MULTI】 «ES»)
+    // 2. إزالة العلامات المحصورة بين القضبان العمودية والأقواس المزخرفة لجميع اللغات
     s = s.replace(Regex("""[┃│|¦‖][^┃│|¦‖]{1,24}[┃│|¦‖]"""), " ")
     s = s.replace(Regex("""【[^】]*】|〔[^〕]*〕|《[^》]*》|〈[^〉]*〉|「[^」]*」|『[^』]*』|«[^»]*»"""), " ")
     s = s.replace(Regex("""\[[^\]]*\]|\([^)]*\)|\{[^}]*\}"""), " ")
 
-    // إزالة علامات التنصيص حول رموز اللغات أو التصنيفات القصيرة مثل "EN" أو 'NL'
+    // إزالة علامات التنصيص حول رموز اللغات أو التصنيفات القصيرة
     s = s.replace(
         Regex("""(?i)(^|\s)["'“”‘’]\s*([a-z]{2,4}(-[a-z]{2,4})?|multi|dual|sub|dub|vostfr|vf|4k|uhd|fhd|hd|sd|vip|top|new|ar|en|fr|nl|de|es|tr|it|pt|ru|hi|ko|ja)\s*["'“”‘’](?=\s|$)"""),
         " "
     )
     s = s.trim().trim('"', '\'', '“', '”', '‘', '’')
 
-    // 3. إزالة بادئات السيرفرات والمنصات والتصنيفات قبل الفواصل (: | - – — > » /) دون المساس بالمواسم والحلقات
+    // 3. إزالة بادئات السيرفرات والمنصات والتصنيفات قبل الفواصل (: | - – — > » /)
     val prefixRegex = Regex(
         """(?i)^\s*(top(\s*\d+)?|new|hot|best|vip|exclusive|premiere|trending|popular|recommended|box\s*office|oscars?|imdb(\s*top)?|""" +
             """netflix|nf|amazon|prime(\s*video)?|disney\+?|(apple\s*)?tv\+?|hbo(\s*max)?|max|hulu|paramount\+?|peacock|starz|showtime|""" +
@@ -52,7 +45,7 @@ fun cleanMovieTitleForSubtitleSearch(raw: String): String {
             """fi|fin|finnish|cs|cze|czech|hu|hun|hungarian|bg|bul|bulgarian|sr|srp|serbian|hr|hrv|croatian|bs|bosnian|""" +
             """sl|slv|slovenian|mk|macedonian|sq|alb|albanian|uk|ukr|ukrainian|he|heb|hebrew|id|ind|indonesian|ms|malay|""" +
             """th|tha|thai|vi|vie|vietnamese|tl|fil|tagalog|filipino|multi|multisub|dual|vostfr|vf|vff|vfq|truefrench|sub|subs|dub|dubbed|""" +
-            """أفلام|افلام|فيلم|فلم|حصري|حصريا|حصرياً|جديد|جديدة|مترجم|مترجمة|مدبلج|مدبلجة|ترجمة|""" +
+            """أفلام|افلام|فيلم|فلم|مسلسلات|مسلسل|حصري|حصريا|حصرياً|جديد|جديدة|مترجم|مترجمة|مدبلج|مدبلجة|ترجمة|""" +
             """عربي|عربية|أجنبي|أجنبية|اجنبي|اجنبية|فرنسي|تركي|هندي|كوري|ياباني|إسباني|اسباني|ألماني|الماني|روسي|أنمي|انمي|كرتون|نتفليكس|شاهد|بوكس\s*أوفيس|بوكس\s*اوفيس)""" +
             """\s*[:|┃│¦\-–—>»/]+\s*"""
     )
@@ -60,7 +53,7 @@ fun cleanMovieTitleForSubtitleSearch(raw: String): String {
         s = s.replace(prefixRegex, "")
     }
 
-    // 4. في حال وجود عنوان مزدوج (عربي / إنجليزي) مثل "المصارع / Gladiator" نختار الجزء اللاتيني لدقة البحث
+    // 4. في حال وجود عنوان مزدوج (عربي / إنجليزي) نختار الجزء اللاتيني لدقة البحث
     if (s.contains("/") || s.contains("|")) {
         val parts = s.split(Regex("""\s*[/|┃│]\s*""")).map { it.trim() }.filter { it.isNotBlank() }
         if (parts.size >= 2) {
@@ -88,11 +81,26 @@ fun cleanMovieTitleForSubtitleSearch(raw: String): String {
         }
     }
 
-    // 6. تحويل النقاط والشرطات السفلية إلى مسافات وإزالة أسماء فرق الرفع في نهاية الاسم (-YIFY, -FLUX...)
+    // 6. تحويل النقاط والشرطات السفلية إلى مسافات وإزالة أسماء فرق الرفع في نهاية الاسم
     s = s.replace(Regex("""-[A-Za-z0-9]{2,14}$"""), " ")
     s = s.replace(Regex("""[._]+"""), " ")
 
-    // 7. إزالة الجودات والترميزات والنسخ واللغات والعلامات المائية فقط (مع الإبقاء التام على رموز المواسم والحلقات والمسلسلات)
+    // 7. تصفية اسم المسلسل بالكامل من أرقام ورموز الفصول والمواسم والحلقات بجميع اللغات
+    // الصيغ اللاتينية: S01E05, S01 E05, 1x05, S01, E05, EP05, Season 1, Episode 5, Chapter 2, Part 1, Saison, Bölüm, Temporada...
+    s = s.replace(Regex("""(?i)\bS\d{1,2}\s*[-–—]?\s*E\d{1,4}(\s*[-–—]\s*E?\d{1,4})?\b"""), " ")
+    s = s.replace(Regex("""(?i)\b\d{1,2}x\d{1,4}\b"""), " ")
+    s = s.replace(Regex("""(?i)\b(season|saison|sezon|temporada|staffel|stagione)\s*\d{1,2}\b"""), " ")
+    s = s.replace(Regex("""(?i)\b(episode|épisode|episodio|bölüm|bolum|folge|chapter|chapitre|capítulo|capitulo|part|parte|vol|volume)\s*\d{1,4}\b"""), " ")
+    s = s.replace(Regex("""(?i)\b(S|E|EP|CH|PT)\s*0*\d{1,4}\b"""), " ")
+
+    // الصيغ العربية: مسلسل، الموسم 1 / الأول..العاشر، الفصل 1 / الأول..العاشر، الحلقة 1 / الأخيرة، الجزء 1، ح 05، م 1، ف 1، ج 1
+    s = s.replace(
+        Regex("""(^|\s)(مسلسل|الموسم|موسم|الفصل|فصل|الجزء|جزء|الحلقة|حلقة|حلقات)\s*(\d{1,4}|الأول|الاول|الثاني|الثانى|الثالث|الرابع|الخامس|السادس|السابع|الثامن|التاسع|العاشر|الأخيرة|الاخيرة)?(?=\s|$)"""),
+        " "
+    )
+    s = s.replace(Regex("""(^|\s)[حمفج]\s*0*\d{1,4}(?=\s|$)"""), " ")
+
+    // 8. إزالة الجودات والترميزات والنسخ واللغات والعلامات المائية
     s = s.replace(
         Regex(
             """(?i)\b(1080p|720p|480p|360p|2160p|4320p|4k|8k|uhd|fhd|hd|sd|hdr10\+?|hdr|sdr|hlg|dv|dovi|dolby|vision|atmos|""" +
@@ -118,7 +126,7 @@ fun cleanMovieTitleForSubtitleSearch(raw: String): String {
     // إزالة أي سنة مكررة داخل المتن قبل إلحاقها مرة واحدة نظيفة في النهاية
     s = s.replace(Regex("""\b(19[2-9]\d|20[0-3]\d)\b"""), " ")
 
-    // 8. تنظيف الرموز العالقة والمسافات الزائدة
+    // 9. تنظيف الرموز العالقة والمسافات الزائدة
     s = s.replace(Regex("""[|┃│¦‖•★☆◆▪►◄~#*+=<>\[\](){}/\\]+"""), " ")
     s = s.replace(Regex("""\s+[-–—:]+\s+"""), " ")
     s = s.replace(Regex("""\s+"""), " ").trim(' ', '-', '–', '—', ':', '.', '_', '/', '|', '┃', '│')

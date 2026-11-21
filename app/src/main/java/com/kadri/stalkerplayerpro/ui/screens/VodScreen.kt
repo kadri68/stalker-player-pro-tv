@@ -41,6 +41,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,6 +70,8 @@ import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.TvSafeSearchBar
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+import com.kadri.stalkerplayerpro.core.tv.tvHorizontalStepItem
+import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.CategoryRuleEntity
 import com.kadri.stalkerplayerpro.data.local.PortalCacheStore
@@ -95,6 +98,7 @@ fun VodScreen(
     parentalPin: String = "0000",
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onNavigateToTopBar: () -> Boolean = { false },
     lastFocusedItemId: String? = null,
     onItemFocused: (String) -> Unit = {},
     onGoToPortals: () -> Unit = {},
@@ -260,6 +264,16 @@ fun VodScreen(
 
     val gridState = rememberLazyGridState()
     val itemsEntryRequester = remember { FocusRequester() }
+    val vodCatRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
+    var focusedVodCatId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(focusedVodCatId) {
+        val targetId = focusedVodCatId ?: return@LaunchedEffect
+        delay(220)
+        if (selectedCategoryId != targetId) {
+            selectedCategoryId = targetId
+        }
+    }
     val targetItemIndex = remember(pagedItems, lastFocusedItemId) {
         if (lastFocusedItemId != null) {
             val found = pagedItems.indexOfFirst { it.id == lastFocusedItemId }
@@ -691,6 +705,13 @@ fun VodScreen(
                     }
                 } else {
                     val seasons = seasonsMap.keys.toList()
+                    val episodes = seasonsMap[selectedSeasonNum].orEmpty()
+                    val seasonRequesters = remember(seasons) {
+                        List(seasons.size) { idx -> if (idx == 0) firstRequester else FocusRequester() }
+                    }
+                    val episodeRequesters = remember(selectedSeasonNum, episodes.size) { mutableStateMapOf<Int, FocusRequester>() }
+                    val episodeListState = rememberLazyListState()
+
                     if (seasons.isNotEmpty()) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -700,8 +721,19 @@ fun VodScreen(
                                 val active = sNum == selectedSeasonNum
                                 Box(
                                     modifier = Modifier
+                                        .tvHorizontalStepItem(
+                                            index = sIdx,
+                                            totalCount = seasons.size,
+                                            requesters = seasonRequesters,
+                                            isAr = isAr,
+                                            onDown = {
+                                                if (episodes.isNotEmpty()) {
+                                                    runCatching { episodeRequesters.getOrPut(0) { FocusRequester() }.requestFocus() }.isSuccess
+                                                } else false
+                                            }
+                                        )
                                         .tvFocusItem(
-                                            focusRequester = if (sIdx == 0) firstRequester else null,
+                                            focusRequester = seasonRequesters[sIdx],
                                             shape = RoundedCornerShape(8.dp),
                                             unfocusedBackgroundColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                             onClick = { selectedSeasonNum = sNum }
@@ -719,19 +751,32 @@ fun VodScreen(
                         Spacer(modifier = Modifier.height(10.dp))
                     }
 
-                    val episodes = seasonsMap[selectedSeasonNum].orEmpty()
                     LazyColumn(
+                        state = episodeListState,
                         verticalArrangement = Arrangement.spacedBy(7.dp),
                         modifier = Modifier.fillMaxWidth().height(250.dp)
                     ) {
                         itemsIndexed(
                             items = episodes,
                             key = { idx, ep -> "${ep.uniqueKey}_$idx" }
-                        ) { _, ep ->
+                        ) { epIdx, ep ->
+                            val epReq = episodeRequesters.getOrPut(epIdx) { FocusRequester() }
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .tvVerticalStepItem(
+                                        index = epIdx,
+                                        totalCount = episodes.size,
+                                        listState = episodeListState,
+                                        requesters = episodeRequesters,
+                                        scope = scope,
+                                        onExitTop = {
+                                            val sIdx = seasons.indexOf(selectedSeasonNum).coerceAtLeast(0)
+                                            runCatching { seasonRequesters.getOrNull(sIdx)?.requestFocus() }.isSuccess
+                                        }
+                                    )
                                     .tvFocusItem(
+                                        focusRequester = epReq,
                                         shape = RoundedCornerShape(10.dp),
                                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                                         onClick = {
@@ -747,7 +792,7 @@ fun VodScreen(
                                                         itemId = ep.id,
                                                         seriesId = series.id,
                                                         title = fullTitle,
-                                                        subtitleQueryHint = "${series.name} $epCode",
+                                                        subtitleQueryHint = com.kadri.stalkerplayerpro.player.cleanMovieTitleForSubtitleSearch(series.name),
                                                         posterOrLogo = series.posterUrl,
                                                         streamCmdOrUrl = ep.streamCmdOrUrl,
                                                         containerExtension = ep.containerExtension,

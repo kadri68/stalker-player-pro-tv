@@ -54,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -74,6 +75,8 @@ import com.kadri.stalkerplayerpro.core.tv.LocaleUtils
 import com.kadri.stalkerplayerpro.core.tv.LtrText
 import com.kadri.stalkerplayerpro.core.tv.blockFocusWhen
 import com.kadri.stalkerplayerpro.core.tv.tvFocusItem
+import com.kadri.stalkerplayerpro.core.tv.tvHorizontalStepItem
+import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.PortalEntity
 import com.kadri.stalkerplayerpro.data.model.ProtocolType
@@ -101,6 +104,7 @@ fun PortalsScreen(
     dao: AppDao,
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onNavigateToTopBar: () -> Boolean = { false },
     lastFocusedPortalId: Long = -1L,
     onPortalFocused: (Long) -> Unit = {},
     onPortalActivated: (PortalEntity) -> Unit
@@ -280,11 +284,20 @@ fun PortalsScreen(
                 .blockFocusWhen(anyDialogOpen)
                 .padding(12.dp)
         ) {
+            val focusFirstPortalOrQuick: () -> Boolean = {
+                if (displayedPortals.isNotEmpty()) {
+                    runCatching { portalRequesters.getOrPut(0) { FocusRequester() }.requestFocus() }.isSuccess
+                } else {
+                    runCatching { quickRequesters[0].requestFocus() }.isSuccess
+                }
+            }
+
+            // السطر الأفقي الأول: إضافة حساب / لصق ذكي / المحلل الذكي / ملف M3U / ملف TXT / QR / فحص الكل / حذف متعدد
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusGroup()
-                    .horizontalScroll(rememberScrollState()),
+                    .horizontalScroll(quickRowScroll),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -299,15 +312,26 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "إضافة حساب" else "Add Account",
                     icon = Icons.Default.Add,
-                    focusRequester = quickActionsFirstRequester,
-                    downRequester = filterRowFirstRequester,
+                    focusRequester = quickRequesters[0],
+                    stepModifier = Modifier.tvHorizontalStepItem(
+                        index = 0, totalCount = 8, requesters = quickRequesters, isAr = isAr,
+                        scrollState = quickRowScroll, scope = scope,
+                        onUp = { onNavigateToTopBar() },
+                        onDown = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                    ),
                     onClick = { showAddDialog = true }
                 )
 
                 ActionChipButton(
                     label = if (isAr) "لصق ذكي" else "Smart Paste",
                     icon = Icons.Default.ContentPaste,
-                    downRequester = filterRowFirstRequester,
+                    focusRequester = quickRequesters[1],
+                    stepModifier = Modifier.tvHorizontalStepItem(
+                        index = 1, totalCount = 8, requesters = quickRequesters, isAr = isAr,
+                        scrollState = quickRowScroll, scope = scope,
+                        onUp = { onNavigateToTopBar() },
+                        onDown = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                    ),
                     onClick = {
                         smartInitialText = readClipboardText()
                         showSmartParserDialog = true
@@ -317,7 +341,13 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "المحلل الذكي" else "Smart Parser",
                     icon = Icons.Default.AutoFixHigh,
-                    downRequester = filterRowFirstRequester,
+                    focusRequester = quickRequesters[2],
+                    stepModifier = Modifier.tvHorizontalStepItem(
+                        index = 2, totalCount = 8, requesters = quickRequesters, isAr = isAr,
+                        scrollState = quickRowScroll, scope = scope,
+                        onUp = { onNavigateToTopBar() },
+                        onDown = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                    ),
                     onClick = {
                         smartInitialText = ""
                         showSmartParserDialog = true
@@ -327,7 +357,13 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "ملف M3U" else "Import M3U",
                     icon = Icons.Default.VideoLibrary,
-                    downRequester = filterRowFirstRequester,
+                    focusRequester = quickRequesters[3],
+                    stepModifier = Modifier.tvHorizontalStepItem(
+                        index = 3, totalCount = 8, requesters = quickRequesters, isAr = isAr,
+                        scrollState = quickRowScroll, scope = scope,
+                        onUp = { onNavigateToTopBar() },
+                        onDown = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                    ),
                     onClick = {
                         val ok = runCatching { com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; m3uFileLauncher.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "*/*")) }.isSuccess
                         if (!ok) {
@@ -339,7 +375,13 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "ملف TXT" else "Import TXT",
                     icon = Icons.Default.FileOpen,
-                    downRequester = filterRowFirstRequester,
+                    focusRequester = quickRequesters[4],
+                    stepModifier = Modifier.tvHorizontalStepItem(
+                        index = 4, totalCount = 8, requesters = quickRequesters, isAr = isAr,
+                        scrollState = quickRowScroll, scope = scope,
+                        onUp = { onNavigateToTopBar() },
+                        onDown = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                    ),
                     onClick = {
                         val ok = runCatching { com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; txtImportLauncher.launch(arrayOf("text/plain", "*/*")) }.isSuccess
                         if (!ok) {
@@ -351,7 +393,13 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = "QR",
                     icon = Icons.Default.QrCodeScanner,
-                    downRequester = filterRowFirstRequester,
+                    focusRequester = quickRequesters[5],
+                    stepModifier = Modifier.tvHorizontalStepItem(
+                        index = 5, totalCount = 8, requesters = quickRequesters, isAr = isAr,
+                        scrollState = quickRowScroll, scope = scope,
+                        onUp = { onNavigateToTopBar() },
+                        onDown = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                    ),
                     onClick = {
                         val ok = runCatching { com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; qrImportLauncher.launch(arrayOf("image/*")) }.isSuccess
                         if (!ok) {
@@ -363,7 +411,13 @@ fun PortalsScreen(
                 ActionChipButton(
                     label = if (isAr) "فحص الكل" else "Check All",
                     icon = Icons.Default.CheckCircle,
-                    downRequester = filterRowFirstRequester,
+                    focusRequester = quickRequesters[6],
+                    stepModifier = Modifier.tvHorizontalStepItem(
+                        index = 6, totalCount = 8, requesters = quickRequesters, isAr = isAr,
+                        scrollState = quickRowScroll, scope = scope,
+                        onUp = { onNavigateToTopBar() },
+                        onDown = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                    ),
                     onClick = {
                         if (!isCheckingAll && portals.isNotEmpty()) {
                             scope.launch {
@@ -385,9 +439,14 @@ fun PortalsScreen(
                         if (isAr) "حذف متعدد" else "Multi-Delete"
                     },
                     icon = Icons.Default.Delete,
-                    downRequester = filterRowFirstRequester,
-                    endNextRequester = filterRowFirstRequester,
-                    isAr = isAr,
+                    focusRequester = quickRequesters[7],
+                    stepModifier = Modifier.tvHorizontalStepItem(
+                        index = 7, totalCount = 8, requesters = quickRequesters, isAr = isAr,
+                        scrollState = quickRowScroll, scope = scope,
+                        onUp = { onNavigateToTopBar() },
+                        onDown = { runCatching { filterRequesters[0].requestFocus() }.isSuccess },
+                        onExitEnd = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                    ),
                     isDestructive = multiSelectMode && selectedIds.isNotEmpty(),
                     onClick = {
                         if (!multiSelectMode) {
@@ -410,11 +469,12 @@ fun PortalsScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // السطر الأفقي الثاني: تصنيفات السيرفرات (الكل / Stalker / Xtream / M3U)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusGroup()
-                    .horizontalScroll(rememberScrollState()),
+                    .horizontalScroll(filterRowScroll),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 val filterTabs = listOf(
@@ -423,21 +483,24 @@ fun PortalsScreen(
                     "XTREAM" to "Xtream (${xtreamList.size})",
                     "M3U" to "M3U (${m3uList.size})"
                 )
-                val downFromFilters = if (displayedPortals.isNotEmpty()) portalsEntryRequester else initialContentFocusRequester
                 filterTabs.forEachIndexed { fIdx, (code, title) ->
                     val active = selectedProtocolFilter == code
-                    val isLastFilter = fIdx == filterTabs.lastIndex
                     Box(
                         modifier = Modifier
-                            .focusProperties {
-                                up = quickActionsFirstRequester
-                                down = downFromFilters
-                                if (isLastFilter) {
-                                    if (isAr) left = downFromFilters else right = downFromFilters
-                                }
-                            }
+                            .tvHorizontalStepItem(
+                                index = fIdx,
+                                totalCount = 4,
+                                requesters = filterRequesters,
+                                isAr = isAr,
+                                scrollState = filterRowScroll,
+                                scope = scope,
+                                onExitStart = { runCatching { quickRequesters[7].requestFocus() }.isSuccess },
+                                onUp = { runCatching { quickRequesters[0].requestFocus() }.isSuccess },
+                                onDown = focusFirstPortalOrQuick,
+                                onExitEnd = focusFirstPortalOrQuick
+                            )
                             .tvFocusItem(
-                                focusRequester = if (fIdx == 0) filterRowFirstRequester else null,
+                                focusRequester = filterRequesters[fIdx],
                                 shape = RoundedCornerShape(8.dp),
                                 unfocusedBackgroundColor = if (active) {
                                     MaterialTheme.colorScheme.secondary
@@ -500,6 +563,15 @@ fun PortalsScreen(
                     ) { index, portal ->
                         val isSelected = portal.id in selectedIds
                         val isBuiltInFree = portal.url == BUILTIN_FREE_AR_M3U_URL
+                        val rowCardRequester = portalRequesters.getOrPut(index) { FocusRequester() }
+                        val rowStepMod = Modifier.tvVerticalStepItem(
+                            index = index,
+                            totalCount = displayedPortals.size,
+                            listState = listState,
+                            requesters = portalRequesters,
+                            scope = scope,
+                            onExitTop = { runCatching { filterRequesters[0].requestFocus() }.isSuccess }
+                        )
                         PortalCardItem(
                             portal = portal,
                             isBuiltInFree = isBuiltInFree,
@@ -508,12 +580,8 @@ fun PortalsScreen(
                             isLast = index == displayedPortals.lastIndex,
                             multiSelectMode = multiSelectMode,
                             isSelected = isSelected,
-                            cardFocusRequester = when {
-                                index == targetFocusIndex -> portalsEntryRequester
-                                index == 0 -> initialContentFocusRequester
-                                else -> null
-                            },
-                            upRequester = if (index == 0) filterRowFirstRequester else null,
+                            cardFocusRequester = rowCardRequester,
+                            verticalStepModifier = rowStepMod,
                             onFocused = { onPortalFocused(portal.id) },
                             onActivate = {
                                 if (multiSelectMode) {
@@ -700,7 +768,7 @@ private fun PortalCardItem(
     multiSelectMode: Boolean,
     isSelected: Boolean,
     cardFocusRequester: FocusRequester? = null,
-    upRequester: FocusRequester? = null,
+    verticalStepModifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
     onActivate: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -750,7 +818,7 @@ private fun PortalCardItem(
         Row(
             modifier = Modifier
                 .weight(1f)
-                .then(if (upRequester != null) Modifier.focusProperties { up = upRequester } else Modifier)
+                .then(verticalStepModifier)
                 .onFocusChanged { if (it.isFocused) onFocused() }
                 .tvFocusItem(
                     focusRequester = cardFocusRequester,
@@ -866,10 +934,12 @@ private fun SmallIconTvButton(
     icon: ImageVector,
     tint: Color,
     enabled: Boolean = true,
+    stepModifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
+            .then(stepModifier)
             .tvFocusItem(
                 enabled = enabled,
                 shape = RoundedCornerShape(8.dp),
@@ -893,9 +963,7 @@ private fun ActionChipButton(
     label: String,
     icon: ImageVector,
     focusRequester: FocusRequester? = null,
-    downRequester: FocusRequester? = null,
-    endNextRequester: FocusRequester? = null,
-    isAr: Boolean = true,
+    stepModifier: Modifier = Modifier,
     isDestructive: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -903,12 +971,7 @@ private fun ActionChipButton(
     val fg = if (isDestructive) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface
     Row(
         modifier = Modifier
-            .focusProperties {
-                if (downRequester != null) down = downRequester
-                if (endNextRequester != null) {
-                    if (isAr) left = endNextRequester else right = endNextRequester
-                }
-            }
+            .then(stepModifier)
             .tvFocusItem(
                 focusRequester = focusRequester,
                 shape = RoundedCornerShape(10.dp),

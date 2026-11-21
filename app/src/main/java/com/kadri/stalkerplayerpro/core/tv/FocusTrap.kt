@@ -1,6 +1,7 @@
 package com.kadri.stalkerplayerpro.core.tv
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -26,16 +28,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun TvFocusTrap(
@@ -66,6 +76,125 @@ fun Modifier.blockFocusWhen(blocked: Boolean): Modifier =
     this.focusProperties {
         canFocus = !blocked
     }
+
+/**
+ * تحكم خطوي دقيق بالريموت (Up / Down) داخل القوائم العمودية (LazyColumn):
+ * - يمنع تحرك القائمة بالكامل عند النزول، ويمنع القفز أو تخطي الأسطر عند الصعود.
+ * - ينقل التركيز صفاً بصف (index - 1 / index + 1) ولا يسمح بالخروج للأعلى إلا من الصف الأول (index == 0).
+ */
+fun Modifier.tvVerticalStepItem(
+    index: Int,
+    totalCount: Int,
+    listState: LazyListState,
+    requesters: MutableMap<Int, FocusRequester>,
+    scope: CoroutineScope,
+    onExitTop: (() -> Boolean)? = null,
+    onExitBottom: (() -> Boolean)? = null
+): Modifier = this.onPreviewKeyEvent { ev ->
+    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+    when (ev.key) {
+        Key.DirectionDown -> {
+            if (index < totalCount - 1) {
+                val nextIdx = index + 1
+                val nextReq = requesters[nextIdx]
+                val layoutInfo = listState.layoutInfo
+                val nextInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == nextIdx }
+                val fullyVisible = nextInfo != null &&
+                    (nextInfo.offset + nextInfo.size) <= layoutInfo.viewportEndOffset
+                if (fullyVisible && nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
+                    return@onPreviewKeyEvent true
+                }
+                scope.launch {
+                    runCatching { listState.scrollToItem(nextIdx) }
+                    withFrameNanos { }
+                    runCatching { requesters[nextIdx]?.requestFocus() }
+                }
+                true
+            } else {
+                if (onExitBottom != null && onExitBottom.invoke()) {
+                    true
+                } else {
+                    true
+                }
+            }
+        }
+        Key.DirectionUp -> {
+            if (index > 0) {
+                val prevIdx = index - 1
+                val prevReq = requesters[prevIdx]
+                val layoutInfo = listState.layoutInfo
+                val prevInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == prevIdx }
+                val fullyVisible = prevInfo != null &&
+                    prevInfo.offset >= layoutInfo.viewportStartOffset
+                if (fullyVisible && prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
+                    return@onPreviewKeyEvent true
+                }
+                scope.launch {
+                    runCatching { listState.scrollToItem(prevIdx) }
+                    withFrameNanos { }
+                    runCatching { requesters[prevIdx]?.requestFocus() }
+                }
+                true
+            } else {
+                onExitTop?.invoke() ?: false
+            }
+        }
+        else -> false
+    }
+}
+
+/**
+ * تحكم خطوي دقيق بالريموت داخل الأسطر الأفقية (Left / Right / Up / Down):
+ * - ينتقل زراً تلو الآخر أفقياً مع التمرير التلقائي لإظهار الأزرار الطرفية.
+ * - ينقل التركيز مباشرة للحقل المجاور عند الوصول لنهاية السطر أو الضغط Up / Down دون الحاجة لـ OK.
+ */
+fun Modifier.tvHorizontalStepItem(
+    index: Int,
+    totalCount: Int,
+    requesters: List<FocusRequester>,
+    isAr: Boolean,
+    scrollState: ScrollState? = null,
+    scope: CoroutineScope? = null,
+    onExitStart: (() -> Boolean)? = null,
+    onExitEnd: (() -> Boolean)? = null,
+    onUp: (() -> Boolean)? = null,
+    onDown: (() -> Boolean)? = null
+): Modifier = this.onPreviewKeyEvent { ev ->
+    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+    val moveNext = (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight)
+    val movePrev = (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft)
+    when {
+        moveNext -> {
+            if (index < totalCount - 1) {
+                val nextIdx = index + 1
+                runCatching { requesters.getOrNull(nextIdx)?.requestFocus() }
+                if (scrollState != null && scope != null && totalCount > 1) {
+                    val target = (scrollState.maxValue * nextIdx) / (totalCount - 1)
+                    scope.launch { runCatching { scrollState.animateScrollTo(target) } }
+                }
+                true
+            } else {
+                onExitEnd?.invoke() ?: true
+            }
+        }
+        movePrev -> {
+            if (index > 0) {
+                val prevIdx = index - 1
+                runCatching { requesters.getOrNull(prevIdx)?.requestFocus() }
+                if (scrollState != null && scope != null && totalCount > 1) {
+                    val target = (scrollState.maxValue * prevIdx) / (totalCount - 1)
+                    scope.launch { runCatching { scrollState.animateScrollTo(target) } }
+                }
+                true
+            } else {
+                onExitStart?.invoke() ?: true
+            }
+        }
+        ev.key == Key.DirectionUp -> onUp?.invoke() ?: false
+        ev.key == Key.DirectionDown -> onDown?.invoke() ?: false
+        else -> false
+    }
+}
 
 @Composable
 fun TvSafeSearchBar(
@@ -159,7 +288,8 @@ fun TvSafeSearchBar(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -167,15 +297,13 @@ fun TvSafeSearchBar(
     } else {
         Row(
             modifier = modifier
-                .fillMaxWidth()
                 .tvFocusItem(
                     focusRequester = buttonFocusRequester,
                     shape = RoundedCornerShape(10.dp),
-                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
                     onClick = { isEditing = true }
                 )
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(

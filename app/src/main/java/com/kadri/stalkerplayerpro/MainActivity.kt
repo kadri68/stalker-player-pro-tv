@@ -534,6 +534,7 @@ private fun MainTvRoot(
                 when (selectedTab) {
                     TvTab.LIVE.index -> LiveTvScreen(
                         portal = activePortal,
+                        onNavigateToTopBar = { runCatching { tabRequesters[TvTab.LIVE.index].requestFocus() }.isSuccess },
                         dao = dao,
                         parentalPin = settings.parentalPin,
                         isAr = isAr,
@@ -550,6 +551,7 @@ private fun MainTvRoot(
                         portal = activePortal,
                         dao = dao,
                         isSeriesMode = false,
+                        onNavigateToTopBar = { runCatching { tabRequesters[TvTab.MOVIES.index].requestFocus() }.isSuccess },
                         parentalPin = settings.parentalPin,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
@@ -565,6 +567,7 @@ private fun MainTvRoot(
                         portal = activePortal,
                         dao = dao,
                         isSeriesMode = true,
+                        onNavigateToTopBar = { runCatching { tabRequesters[TvTab.SERIES.index].requestFocus() }.isSuccess },
                         parentalPin = settings.parentalPin,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
@@ -584,6 +587,7 @@ private fun MainTvRoot(
                     )
                     TvTab.PORTALS.index -> PortalsScreen(
                         dao = dao,
+                        onNavigateToTopBar = { runCatching { tabRequesters[TvTab.PORTALS.index].requestFocus() }.isSuccess },
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
                         lastFocusedPortalId = lastFocusedPortalId,
