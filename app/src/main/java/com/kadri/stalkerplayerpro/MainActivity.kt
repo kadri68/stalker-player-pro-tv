@@ -74,6 +74,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -318,6 +319,28 @@ private fun MainTvRoot(
         }
     }
 
+    LaunchedEffect(activePortal?.id) {
+        val p = activePortal ?: return@LaunchedEffect
+        if (p.expiryTimestampMs == 0L && p.url != BUILTIN_FREE_AR_M3U_URL) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val updated = when (p.protocol) {
+                    "STALKER" -> {
+                        val (valid, expMs) = com.kadri.stalkerplayerpro.data.network.StalkerApiClient.checkPortalAccount(p.url, p.mac)
+                        if (expMs > 0L) p.copy(expiryTimestampMs = expMs, statusText = if (valid) "Active" else p.statusText) else null
+                    }
+                    "XTREAM" -> {
+                        val st = com.kadri.stalkerplayerpro.data.network.XtreamApiClient.checkAccount(p.url, p.username, p.password)
+                        if (st.expiryTimestampMs > 0L) p.copy(expiryTimestampMs = st.expiryTimestampMs, statusText = st.statusText) else null
+                    }
+                    else -> null
+                }
+                if (updated != null) {
+                    dao.updatePortal(updated)
+                }
+            }
+        }
+    }
+
     LaunchedEffect(activePlayback != null, settings.autoPipEnabled) {
         onPlayerActiveChanged(activePlayback != null)
     }
@@ -397,12 +420,68 @@ private fun MainTvRoot(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                LtrText(
-                    text = "IPTV STALKER",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.Start,
+                    modifier = Modifier.padding(end = 4.dp)
+                ) {
+                    LtrText(
+                        text = "IPTV STALKER",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    val remainingDaysText = remember(activePortal, isAr) {
+                        val portal = activePortal
+                        when {
+                            portal == null -> ""
+                            portal.url == BUILTIN_FREE_AR_M3U_URL -> if (isAr) "مجاني / غير محدود" else "Free / Unlimited"
+                            portal.expiryTimestampMs > 0L -> {
+                                val now = System.currentTimeMillis()
+                                val daysLeft = ((portal.expiryTimestampMs - now) / 86_400_000L).toInt()
+                                when {
+                                    daysLeft > 10 -> if (isAr) "المتبقي: ${LocaleUtils.formatInt(daysLeft)} يوم" else "$daysLeft days left"
+                                    daysLeft in 3..10 -> if (isAr) "المتبقي: ${LocaleUtils.formatInt(daysLeft)} أيام" else "$daysLeft days left"
+                                    daysLeft == 2 -> if (isAr) "المتبقي: يومان" else "2 days left"
+                                    daysLeft == 1 -> if (isAr) "المتبقي: يوم واحد" else "1 day left"
+                                    daysLeft == 0 -> if (isAr) "ينتهي اليوم!" else "Expires today!"
+                                    else -> if (isAr) "منتهي الصلاحية" else "Expired"
+                                }
+                            }
+                            portal.statusText.isNotBlank() -> portal.statusText
+                            else -> if (isAr) "غير محدد" else "N/A"
+                        }
+                    }
+
+                    if (remainingDaysText.isNotBlank()) {
+                        val remainingColor = remember(activePortal) {
+                            val portal = activePortal
+                            when {
+                                portal == null -> Color.Gray
+                                portal.url == BUILTIN_FREE_AR_M3U_URL -> Color(0xFF00E676)
+                                portal.expiryTimestampMs > 0L -> {
+                                    val daysLeft = ((portal.expiryTimestampMs - System.currentTimeMillis()) / 86_400_000L).toInt()
+                                    when {
+                                        daysLeft > 15 -> Color(0xFF00E5FF)
+                                        daysLeft in 3..15 -> Color(0xFFFFB300)
+                                        daysLeft in 0..2 -> Color(0xFFFF9100)
+                                        else -> Color(0xFFFF5252)
+                                    }
+                                }
+                                else -> Color(0xFF00E5FF)
+                            }
+                        }
+
+                        Text(
+                            text = remainingDaysText,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = remainingColor,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
+                }
 
                 TvTab.entries.forEachIndexed { idx, tab ->
                     val isSelected = selectedTab == tab.index
