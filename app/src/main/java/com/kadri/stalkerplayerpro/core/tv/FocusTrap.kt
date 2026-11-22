@@ -129,7 +129,8 @@ fun Modifier.tvVerticalStepItem(
                     val delta = (itemSize + spacing).toFloat().coerceAtLeast(40f)
                     runCatching { listState.scrollBy(delta) }
                     withFrameNanos { }
-                    var success = runCatching { requesters[nextIdx]?.requestFocus() }.getOrNull() == true
+                    val req = requesters[nextIdx]
+                    val success = req != null && runCatching { req.requestFocus() }.isSuccess
                     if (!success) {
                         withFrameNanos { }
                         runCatching { requesters[nextIdx]?.requestFocus() }
@@ -156,7 +157,8 @@ fun Modifier.tvVerticalStepItem(
                     val delta = (itemSize + spacing).toFloat().coerceAtLeast(40f)
                     runCatching { listState.scrollBy(-delta) }
                     withFrameNanos { }
-                    var success = runCatching { requesters[prevIdx]?.requestFocus() }.getOrNull() == true
+                    val req = requesters[prevIdx]
+                    val success = req != null && runCatching { req.requestFocus() }.isSuccess
                     if (!success) {
                         withFrameNanos { }
                         runCatching { requesters[prevIdx]?.requestFocus() }
