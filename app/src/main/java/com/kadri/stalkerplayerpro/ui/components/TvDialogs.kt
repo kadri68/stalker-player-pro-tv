@@ -179,6 +179,7 @@ data class TvMenuOption(
 fun TvActionMenuDialog(
     title: String,
     options: List<TvMenuOption>,
+    restoreFocusRequester: FocusRequester? = null,
     onSelect: (TvMenuOption) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -191,6 +192,7 @@ fun TvActionMenuDialog(
         title = title,
         onDismiss = onDismiss,
         maxWidth = 460.dp,
+        restoreFocusRequester = restoreFocusRequester,
         closeBtnRequester = closeBtnRequester
     ) { firstRequester ->
         optRequesters[0] = firstRequester
@@ -260,6 +262,7 @@ fun TvPinDialog(
     title: String,
     isAr: Boolean,
     errorMessage: String? = null,
+    restoreFocusRequester: FocusRequester? = null,
     onPinSubmitted: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -270,6 +273,7 @@ fun TvPinDialog(
         title = title,
         onDismiss = onDismiss,
         maxWidth = 380.dp,
+        restoreFocusRequester = restoreFocusRequester,
         closeBtnRequester = closeBtnRequester,
         scrollableBody = true
     ) { firstRequester ->
@@ -424,6 +428,7 @@ fun TvTextInputDialog(
     title: String,
     initialValue: String,
     confirmLabel: String,
+    restoreFocusRequester: FocusRequester? = null,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -433,6 +438,7 @@ fun TvTextInputDialog(
         title = title,
         onDismiss = onDismiss,
         maxWidth = 480.dp,
+        restoreFocusRequester = restoreFocusRequester,
         footer = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
