@@ -304,6 +304,7 @@ fun LiveTvScreen(
     val manageCatRequester = remember { FocusRequester() }
     val liveTopBarRequesters = remember { List(2) { FocusRequester() } }
     var focusedCatId by remember { mutableStateOf<String?>(null) }
+    var hasRestoredInitialFocus by remember(portal.id) { mutableStateOf(false) }
 
     LaunchedEffect(focusedCatId) {
         val targetId = focusedCatId ?: return@LaunchedEffect
@@ -313,6 +314,12 @@ fun LiveTvScreen(
             selectedCategoryId = targetId
         }
     }
+
+    LaunchedEffect(selectedCategoryId) {
+        channelRequesters.clear()
+        runCatching { channelListState.scrollToItem(0) }
+    }
+
     val targetChannelIndex = remember(filteredChannels, lastFocusedChannelId) {
         if (lastFocusedChannelId != null) {
             val found = filteredChannels.indexOfFirst { it.id == lastFocusedChannelId }
@@ -320,12 +327,13 @@ fun LiveTvScreen(
         } else 0
     }
 
-    LaunchedEffect(portal.id, isLoading, lastFocusedChannelId, anyPopupOpen) {
-        if (!isLoading && !anyPopupOpen) {
+    LaunchedEffect(portal.id, isLoading) {
+        if (!isLoading && !hasRestoredInitialFocus && !anyPopupOpen) {
+            hasRestoredInitialFocus = true
             if (filteredChannels.isNotEmpty() && lastFocusedChannelId != null) {
                 runCatching { channelListState.scrollToItem(targetChannelIndex) }
-                delay(70)
-                runCatching { channelsEntryRequester.requestFocus() }
+                delay(80)
+                runCatching { (channelRequesters[targetChannelIndex] ?: channelsEntryRequester).requestFocus() }
             } else {
                 delay(80)
                 runCatching { initialContentFocusRequester.requestFocus() }
@@ -351,7 +359,8 @@ fun LiveTvScreen(
                         if (ev.type == KeyEventType.KeyDown) {
                             val moveToChannels = (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight)
                             if (moveToChannels && filteredChannels.isNotEmpty()) {
-                                if (runCatching { channelsEntryRequester.requestFocus() }.isSuccess) {
+                                val req = channelRequesters[targetChannelIndex] ?: channelRequesters[0] ?: channelsEntryRequester
+                                if (runCatching { req.requestFocus() }.isSuccess) {
                                     return@onPreviewKeyEvent true
                                 }
                             }
@@ -430,13 +439,15 @@ fun LiveTvScreen(
                                     onExitTop = { runCatching { manageCatRequester.requestFocus() }.isSuccess },
                                     onExitBottom = {
                                         if (filteredChannels.isNotEmpty()) {
-                                            runCatching { channelsEntryRequester.requestFocus() }.isSuccess
+                                            val req = channelRequesters[targetChannelIndex] ?: channelRequesters[0] ?: channelsEntryRequester
+                                            runCatching { req.requestFocus() }.isSuccess
                                         } else false
                                     }
                                 )
                                 .focusProperties {
                                     if (filteredChannels.isNotEmpty()) {
-                                        if (isAr) left = channelsEntryRequester else right = channelsEntryRequester
+                                        val req = channelRequesters[targetChannelIndex] ?: channelsEntryRequester
+                                        if (isAr) left = req else right = req
                                     }
                                 }
                                 .tvFocusItem(
@@ -541,7 +552,7 @@ fun LiveTvScreen(
                                 onUp = { onNavigateToTopBar() },
                                 onDown = {
                                     if (filteredChannels.isNotEmpty()) {
-                                        runCatching { (channelRequesters[0] ?: channelsEntryRequester).requestFocus() }.isSuccess
+                                        runCatching { (channelRequesters[targetChannelIndex] ?: channelRequesters[0] ?: channelsEntryRequester).requestFocus() }.isSuccess
                                     } else false
                                 }
                             )
@@ -556,7 +567,7 @@ fun LiveTvScreen(
                                 onUp = { onNavigateToTopBar() },
                                 onDown = {
                                     if (filteredChannels.isNotEmpty()) {
-                                        runCatching { (channelRequesters[0] ?: channelsEntryRequester).requestFocus() }.isSuccess
+                                        runCatching { (channelRequesters[targetChannelIndex] ?: channelRequesters[0] ?: channelsEntryRequester).requestFocus() }.isSuccess
                                     } else false
                                 }
                             )
@@ -623,8 +634,7 @@ fun LiveTvScreen(
                                 key = { idx, ch -> "${ch.uniqueKey}_$idx" }
                             ) { index, channel ->
                                 val isFav = channel.id in favIdSet
-                                val chReq = if (index == targetChannelIndex) channelsEntryRequester else channelRequesters.getOrPut(index) { FocusRequester() }
-                                if (index == targetChannelIndex) channelRequesters[index] = channelsEntryRequester
+                                val chReq = channelRequesters.getOrPut(index) { FocusRequester() }
                                 Box(
                                     modifier = Modifier.tvVerticalStepItem(
                                         index = index,

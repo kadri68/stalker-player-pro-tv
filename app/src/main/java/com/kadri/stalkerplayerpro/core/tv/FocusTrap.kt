@@ -5,6 +5,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,15 +118,16 @@ fun Modifier.tvVerticalStepItem(
             if (index < totalCount - 1) {
                 val nextIdx = index + 1
                 val nextReq = requesters[nextIdx]
-                val layoutInfo = listState.layoutInfo
-                val nextInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == nextIdx }
-                val fullyVisible = nextInfo != null &&
-                    (nextInfo.offset + nextInfo.size) <= layoutInfo.viewportEndOffset
-                if (fullyVisible && nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
+                if (nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
                     return@onPreviewKeyEvent true
                 }
                 scope.launch {
-                    runCatching { listState.scrollToItem(nextIdx) }
+                    val layoutInfo = listState.layoutInfo
+                    val visibleItems = layoutInfo.visibleItemsInfo
+                    val itemSize = visibleItems.lastOrNull()?.size ?: visibleItems.firstOrNull()?.size ?: 60
+                    val spacing = layoutInfo.mainAxisItemSpacing
+                    val delta = (itemSize + spacing).toFloat().coerceAtLeast(40f)
+                    runCatching { listState.scrollBy(delta) }
                     withFrameNanos { }
                     runCatching { requesters[nextIdx]?.requestFocus() }
                 }
@@ -139,15 +141,16 @@ fun Modifier.tvVerticalStepItem(
             if (index > 0) {
                 val prevIdx = index - 1
                 val prevReq = requesters[prevIdx]
-                val layoutInfo = listState.layoutInfo
-                val prevInfo = layoutInfo.visibleItemsInfo.firstOrNull { it.index == prevIdx }
-                val fullyVisible = prevInfo != null &&
-                    prevInfo.offset >= layoutInfo.viewportStartOffset
-                if (fullyVisible && prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
+                if (prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
                     return@onPreviewKeyEvent true
                 }
                 scope.launch {
-                    runCatching { listState.scrollToItem(prevIdx) }
+                    val layoutInfo = listState.layoutInfo
+                    val visibleItems = layoutInfo.visibleItemsInfo
+                    val itemSize = visibleItems.firstOrNull()?.size ?: 60
+                    val spacing = layoutInfo.mainAxisItemSpacing
+                    val delta = (itemSize + spacing).toFloat().coerceAtLeast(40f)
+                    runCatching { listState.scrollBy(-delta) }
                     withFrameNanos { }
                     runCatching { requesters[prevIdx]?.requestFocus() }
                 }

@@ -272,6 +272,7 @@ fun VodScreen(
     val vodTopBarRequesters = remember { List(3) { FocusRequester() } }
     var showWatchHistoryDialog by remember { mutableStateOf(false) }
     var focusedVodCatId by remember { mutableStateOf<String?>(null) }
+    var hasRestoredInitialFocus by remember(portal.id, isSeriesMode) { mutableStateOf(false) }
 
     LaunchedEffect(focusedVodCatId) {
         val targetId = focusedVodCatId ?: return@LaunchedEffect
@@ -287,11 +288,12 @@ fun VodScreen(
         } else 0
     }
 
-    LaunchedEffect(portal.id, isSeriesMode, isLoading, lastFocusedItemId, selectedSeriesForEpisodes) {
-        if (!isLoading && selectedSeriesForEpisodes == null) {
+    LaunchedEffect(portal.id, isSeriesMode, isLoading) {
+        if (!isLoading && !hasRestoredInitialFocus && selectedSeriesForEpisodes == null) {
+            hasRestoredInitialFocus = true
             if (pagedItems.isNotEmpty() && lastFocusedItemId != null) {
                 runCatching { gridState.scrollToItem(targetItemIndex) }
-                delay(70)
+                delay(80)
                 runCatching { itemsEntryRequester.requestFocus() }
             } else {
                 delay(80)
@@ -406,28 +408,37 @@ fun VodScreen(
                         key = { idx, cat -> "vod_cat_${portal.id}_${isSeriesMode}_${cat.id}_$idx" }
                     ) { index, cat ->
                         val isSelected = cat.id == selectedCategoryId
-                        val isEntryCategory = (index == 0 && selectedCategoryId == "ALL") || isSelected
+                        val itemReq = if (index == 0) initialContentFocusRequester else vodCatRequesters.getOrPut(index) { FocusRequester() }
+                        if (index == 0) vodCatRequesters[0] = initialContentFocusRequester
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .onFocusChanged { focusState ->
-                                    if (focusState.isFocused && selectedCategoryId != cat.id) {
-                                        selectedCategoryId = cat.id
+                                    if (focusState.isFocused) {
+                                        focusedVodCatId = cat.id
                                     }
                                 }
+                                .tvVerticalStepItem(
+                                    index = index,
+                                    totalCount = fullCategories.size,
+                                    listState = catListState,
+                                    requesters = vodCatRequesters,
+                                    scope = scope,
+                                    onExitTop = { runCatching { vodManageCatRequester.requestFocus() }.isSuccess },
+                                    onExitBottom = {
+                                        if (pagedItems.isNotEmpty()) {
+                                            runCatching { itemsEntryRequester.requestFocus() }.isSuccess
+                                        } else false
+                                    }
+                                )
                                 .focusProperties {
                                     if (pagedItems.isNotEmpty()) {
                                         if (isAr) left = itemsEntryRequester else right = itemsEntryRequester
-                                        if (index == fullCategories.lastIndex) {
-                                            down = itemsEntryRequester
-                                        }
-                                    }
-                                    if (index > 0) {
-                                        up = FocusRequester.Default
                                     }
                                 }
                                 .tvFocusItem(
-                                    focusRequester = if (isEntryCategory) initialContentFocusRequester else null,
+                                    focusRequester = itemReq,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = if (isSelected) {
                                         MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
@@ -436,6 +447,7 @@ fun VodScreen(
                                     },
                                     onClick = {
                                         selectedCategoryId = cat.id
+                                        focusedVodCatId = cat.id
                                         if (pagedItems.isNotEmpty()) {
                                             runCatching { itemsEntryRequester.requestFocus() }
                                         }
@@ -621,8 +633,17 @@ fun VodScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .onPreviewKeyEvent { ev ->
-                                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp && gridState.firstVisibleItemIndex == 0) {
-                                            runCatching { vodTopBarRequesters[0].requestFocus() }.isSuccess
+                                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
+                                            val visibleInfo = gridState.layoutInfo.visibleItemsInfo
+                                            val firstItem = visibleInfo.firstOrNull()
+                                            if (firstItem != null && firstItem.index == 0) {
+                                                val firstRowY = firstItem.offset.y
+                                                val currentItemInfo = visibleInfo.firstOrNull { it.index == targetItemIndex }
+                                                if (currentItemInfo != null && currentItemInfo.offset.y == firstRowY) {
+                                                    return@onPreviewKeyEvent runCatching { vodTopBarRequesters[0].requestFocus() }.isSuccess
+                                                }
+                                            }
+                                            false
                                         } else false
                                     }
                             ) {
