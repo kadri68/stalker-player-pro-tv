@@ -1,0 +1,35 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="AlJazeera.qa" tvg-name="Al Jazeera" tvg-logo="https://i.imgur.com/eBf4U9V.png" group-title="الأخبار (News)",الجزيرة الإخبارية HD
+https://live-hls-web-aje.getaj.net/AJE/01.m3u8
+#EXTINF:-1 tvg-id="AlJazeeraMubasher.qa" tvg-name="Al Jazeera Mubasher" tvg-logo="https://i.imgur.com/eBf4U9V.png" group-title="الأخبار (News)",الجزيرة مباشر
+https://live-hls-web-ajm.getaj.net/AJM/index.m3u8
+#EXTINF:-1 tvg-id="BBCArabic.uk" tvg-name="BBC Arabic" tvg-logo="https://i.imgur.com/5u8y26N.png" group-title="الأخبار (News)",بي بي سي عربي BBC Arabic
+https://vs-hls-push-ww-live.akamaized.net/x=4/i=urn:bbc:pips:service:bbc_arabic_tv/pc_hd_abr_v2.m3u8
+#EXTINF:-1 tvg-id="SkyNewsArabia.ae" tvg-name="Sky News Arabia" tvg-logo="https://i.imgur.com/g8v0s8h.png" group-title="الأخبار (News)",سكاي نيوز عربية Sky News Arabia
+https://stream.skynewsarabia.com/hls/sna.m3u8
+#EXTINF:-1 tvg-id="France24Arabic.fr" tvg-name="France 24 Arabic" tvg-logo="https://i.imgur.com/s6E7s8K.png" group-title="الأخبار (News)",فرانس 24 عربي France 24
+https://f24hls-i.akamaihd.net/hls/live/221193/F24_AR_HLS/master.m3u8
+#EXTINF:-1 tvg-id="TRTArabi.tr" tvg-name="TRT Arabi" tvg-logo="https://i.imgur.com/aC3VjZ7.png" group-title="الأخبار (News)",تي آر تي عربي TRT Arabi
+https://tv-trtarabi.medya.trt.com.tr/master.m3u8
+#EXTINF:-1 tvg-id="RTArabic.ru" tvg-name="RT Arabic" tvg-logo="https://i.imgur.com/8QWd7mS.png" group-title="الأخبار (News)",روسيا اليوم RT Arabic
+https://rt-ara-live.akamaized.net/hls/live/2034947/ara/master.m3u8
+#EXTINF:-1 tvg-id="DWArabic.de" tvg-name="DW Arabic" tvg-logo="https://i.imgur.com/yFf2ZpX.png" group-title="الأخبار (News)",دويتشه فيله DW Arabic
+https://dwamdstream104.akamaized.net/hls/live/2015530/dwstream104/index.m3u8
+#EXTINF:-1 tvg-id="AlArabiya.sa" tvg-name="Al Arabiya" tvg-logo="https://i.imgur.com/xO43i9F.png" group-title="الأخبار (News)",العربية Al Arabiya
+https://live.alarabiya.net/alarabiapublish/alarabiya.smil/playlist.m3u8
+#EXTINF:-1 tvg-id="AlHadath.sa" tvg-name="Al Hadath" tvg-logo="https://i.imgur.com/4QzKj2A.png" group-title="الأخبار (News)",الحدث Al Hadath
+https://live.alarabiya.net/alarabiapublish/alhadath.smil/playlist.m3u8
+#EXTINF:-1 tvg-id="QuranTv.sa" tvg-name="Saudi Quran" tvg-logo="https://i.imgur.com/Z4w2f0l.png" group-title="إسلامية (Islamic)",قناة القرآن الكريم
+https://m-c037-j01-t01.localtonet.com/hls/quran.m3u8
+#EXTINF:-1 tvg-id="SunnahTv.sa" tvg-name="Saudi Sunnah" tvg-logo="https://i.imgur.com/y2W1f3r.png" group-title="إسلامية (Islamic)",قناة السنة النبوية
+https://m-c037-j01-t01.localtonet.com/hls/sunnah.m3u8
+#EXTINF:-1 tvg-id="AlMajd.sa" tvg-name="Al Majd" tvg-logo="https://i.imgur.com/o1C8G4w.png" group-title="إسلامية (Islamic)",المجد للقرآن الكريم
+https://almajd.tv/live/quran/index.m3u8
+#EXTINF:-1 tvg-id="KuwaitTv.kw" tvg-name="Kuwait TV 1" tvg-logo="https://i.imgur.com/7b7C91h.png" group-title="عامة (General)",تلفزيون الكويت 1
+https://media.gov.kw/live/ktv1/index.m3u8
+#EXTINF:-1 tvg-id="OmanTv.om" tvg-name="Oman TV" tvg-logo="https://i.imgur.com/X4yM9tU.png" group-title="عامة (General)",تلفزيون سلطنة عمان
+https://omantv.gov.om/hls/live.m3u8
+#EXTINF:-1 tvg-id="JordanTv.jo" tvg-name="Jordan TV" tvg-logo="https://i.imgur.com/2mF1Y5R.png" group-title="عامة (General)",التلفزيون الأردني
+https://jrtv.gov.jo/hls/live.m3u8
+#EXTINF:-1 tvg-id="SharjahTv.ae" tvg-name="Sharjah TV" tvg-logo="https://i.imgur.com/Zt5Uq1k.png" group-title="عامة (General)",تلفزيون الشارقة
+https://sba.net.ae/hls/sharjah.m3u8

@@ -122,39 +122,80 @@ fun LiveTvScreen(
     onGoToPortals: () -> Unit = {},
     onPlayChannel: (PlaybackRequest) -> Unit
 ) {
+    if (portal == null) {
+        LiveTvEmptyPortalView(
+            isAr = isAr,
+            initialContentFocusRequester = initialContentFocusRequester,
+            onGoToPortals = onGoToPortals
+        )
+    } else {
+        LiveTvContent(
+            portal = portal,
+            dao = dao,
+            settings = settings,
+            settingsStore = settingsStore,
+            parentalPin = parentalPin,
+            isAr = isAr,
+            initialContentFocusRequester = initialContentFocusRequester,
+            onNavigateToTopBar = onNavigateToTopBar,
+            lastFocusedChannelId = lastFocusedChannelId,
+            onChannelFocused = onChannelFocused,
+            onPlayChannel = onPlayChannel
+        )
+    }
+}
+
+@Composable
+private fun LiveTvEmptyPortalView(
+    isAr: Boolean,
+    initialContentFocusRequester: FocusRequester,
+    onGoToPortals: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = if (isAr) "يرجى اختيار وتفعيل حساب من قسم «البوابات» أولاً" else "Please activate a portal first",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        focusRequester = initialContentFocusRequester,
+                        shape = RoundedCornerShape(10.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                        onClick = onGoToPortals
+                    )
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = if (isAr) "الذهاب إلى البوابات" else "Go to Portals",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveTvContent(
+    portal: PortalEntity,
+    dao: AppDao,
+    settings: TvUserSettings = TvUserSettings(),
+    settingsStore: SettingsDataStore? = null,
+    parentalPin: String,
+    isAr: Boolean,
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onNavigateToTopBar: () -> Boolean = { false },
+    lastFocusedChannelId: String? = null,
+    onChannelFocused: (String) -> Unit = {},
+    onPlayChannel: (PlaybackRequest) -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val extraColors = LocalTvExtraColors.current
-
-    if (portal == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = if (isAr) "يرجى اختيار وتفعيل حساب من قسم «البوابات» أولاً" else "Please activate a portal first",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Box(
-                    modifier = Modifier
-                        .tvFocusItem(
-                            focusRequester = initialContentFocusRequester,
-                            shape = RoundedCornerShape(10.dp),
-                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                            onClick = onGoToPortals
-                        )
-                        .padding(horizontal = 20.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        text = if (isAr) "الذهاب إلى البوابات" else "Go to Portals",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-            }
-        }
-        return
-    }
 
     var categories by remember(portal.id) { mutableStateOf<List<CategoryItem>>(emptyList()) }
     var rawChannels by remember(portal.id) { mutableStateOf<List<ChannelItem>>(emptyList()) }
@@ -260,7 +301,7 @@ fun LiveTvScreen(
                         }
                     }
                     "M3U" -> {
-                        val (cats, chs) = M3uStreamParser.parseFromUrl(portal.url, portal.id)
+                        val (cats, chs) = M3uStreamParser.parseFromUrl(portal.url, portal.id, context)
                         categories = cats
                         rawChannels = chs
                         hasError = chs.isEmpty()

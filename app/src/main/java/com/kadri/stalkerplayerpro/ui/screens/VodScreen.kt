@@ -107,38 +107,81 @@ fun VodScreen(
     onGoToPortals: () -> Unit = {},
     onPlayVod: (PlaybackRequest) -> Unit
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
     if (portal == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = if (isAr) "يرجى تفعيل حساب من قسم «البوابات» أولاً" else "Please activate a portal first",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Box(
-                    modifier = Modifier
-                        .tvFocusItem(
-                            focusRequester = initialContentFocusRequester,
-                            shape = RoundedCornerShape(10.dp),
-                            unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                            onClick = onGoToPortals
-                        )
-                        .padding(horizontal = 20.dp, vertical = 10.dp)
-                ) {
-                    Text(
-                        text = if (isAr) "الذهاب إلى البوابات" else "Go to Portals",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        style = MaterialTheme.typography.labelLarge
+        VodEmptyPortalView(
+            isAr = isAr,
+            initialContentFocusRequester = initialContentFocusRequester,
+            onGoToPortals = onGoToPortals
+        )
+    } else {
+        VodContent(
+            portal = portal,
+            dao = dao,
+            settings = settings,
+            settingsStore = settingsStore,
+            isSeriesMode = isSeriesMode,
+            parentalPin = parentalPin,
+            isAr = isAr,
+            initialContentFocusRequester = initialContentFocusRequester,
+            onNavigateToTopBar = onNavigateToTopBar,
+            lastFocusedItemId = lastFocusedItemId,
+            onItemFocused = onItemFocused,
+            onPlayVod = onPlayVod
+        )
+    }
+}
+
+@Composable
+private fun VodEmptyPortalView(
+    isAr: Boolean,
+    initialContentFocusRequester: FocusRequester,
+    onGoToPortals: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = if (isAr) "يرجى تفعيل حساب من قسم «البوابات» أولاً" else "Please activate a portal first",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .tvFocusItem(
+                        focusRequester = initialContentFocusRequester,
+                        shape = RoundedCornerShape(10.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                        onClick = onGoToPortals
                     )
-                }
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = if (isAr) "الذهاب إلى البوابات" else "Go to Portals",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.labelLarge
+                )
             }
         }
-        return
     }
+}
+
+@Composable
+private fun VodContent(
+    portal: PortalEntity,
+    dao: AppDao,
+    settings: TvUserSettings = TvUserSettings(),
+    settingsStore: SettingsDataStore? = null,
+    isSeriesMode: Boolean,
+    parentalPin: String = "0000",
+    isAr: Boolean,
+    initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
+    onNavigateToTopBar: () -> Boolean = { false },
+    lastFocusedItemId: String? = null,
+    onItemFocused: (String) -> Unit = {},
+    onPlayVod: (PlaybackRequest) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var categories by remember(portal.id, isSeriesMode) { mutableStateOf<List<CategoryItem>>(emptyList()) }
     var allLoadedItems by remember(portal.id, isSeriesMode) { mutableStateOf<List<VodItem>>(emptyList()) }

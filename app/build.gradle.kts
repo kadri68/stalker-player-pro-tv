@@ -13,8 +13,8 @@ android {
         applicationId = "com.kadri.stalkerplayerpro.tv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 36
-        versionName = "2.1.6"
+        versionCode = 37
+        versionName = "2.1.7"
     }
 
     splits {

@@ -192,10 +192,6 @@ class MainActivity : ComponentActivity() {
         if (isLaunchingExternalPicker) return
         if (isPlayerActiveForPip && !isInPipModeState) {
             requestPipMode()
-        } else if (!isInPipModeState) {
-            forceStopPlaybackSignal++
-            isPlayerActiveForPip = false
-            finishAndRemoveTask()
         }
     }
 
@@ -204,8 +200,10 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        val previouslyInPip = isInPipModeState
         isInPipModeState = isInPictureInPictureMode
-        if (!isInPictureInPictureMode && lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED) {
+        // لا يتم إنهاء التطبيق إلا إذا كان المستخدم بالفعل داخل وضع صورة داخل صورة (PiP) وأغلق نافذة PiP من النظام
+        if (previouslyInPip && !isInPictureInPictureMode && lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED) {
             forceStopPlaybackSignal++
             isPlayerActiveForPip = false
             finishAndRemoveTask()

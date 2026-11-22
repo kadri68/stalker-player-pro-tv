@@ -1,10 +1,13 @@
 package com.kadri.stalkerplayerpro.data.network
 
+import android.content.Context
 import android.net.Uri
 import com.kadri.stalkerplayerpro.data.model.CategoryItem
 import com.kadri.stalkerplayerpro.data.model.ChannelItem
+import com.kadri.stalkerplayerpro.ui.screens.BUILTIN_FREE_AR_M3U_URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedReader
 import java.io.File
@@ -12,8 +15,16 @@ import java.io.FileInputStream
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.TimeUnit
 
 object M3uStreamParser {
+
+    private val fastM3uClient: OkHttpClient by lazy {
+        HttpClientProvider.client.newBuilder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
 
     private fun extractAttrFast(line: String, key: String): String {
         val idx = line.indexOf(key, ignoreCase = true)
@@ -23,10 +34,14 @@ object M3uStreamParser {
         return if (end > start) line.substring(start, end) else ""
     }
 
-    suspend fun parseFromUrl(url: String, portalId: Long): Pair<List<CategoryItem>, List<ChannelItem>> =
+    suspend fun parseFromUrl(
+        url: String,
+        portalId: Long,
+        context: Context? = null
+    ): Pair<List<CategoryItem>, List<ChannelItem>> =
         withContext(Dispatchers.IO) {
-            runCatching {
-                val trimmed = url.trim()
+            val trimmed = url.trim()
+            val parsedResult = runCatching {
                 if (trimmed.startsWith("file://") || trimmed.startsWith("/")) {
                     val filePath = if (trimmed.startsWith("file://")) {
                         Uri.parse(trimmed).path ?: trimmed.removePrefix("file://")
@@ -40,12 +55,27 @@ object M3uStreamParser {
                     }
                 } else {
                     val request = Request.Builder().url(trimmed).build()
-                    HttpClientProvider.client.newCall(request).execute().use { response ->
+                    fastM3uClient.newCall(request).execute().use { response ->
                         val stream = response.body?.byteStream() ?: return@withContext (emptyList<CategoryItem>() to emptyList())
                         parseFromStream(stream, portalId)
                     }
                 }
-            }.getOrDefault(emptyList<CategoryItem>() to emptyList())
+            }.getOrNull()
+
+            if (parsedResult != null && parsedResult.second.isNotEmpty()) {
+                return@withContext parsedResult
+            }
+
+            // Fallback to local asset if network is unreachable or remote download failed
+            if (context != null && (trimmed == BUILTIN_FREE_AR_M3U_URL || trimmed.isBlank())) {
+                runCatching {
+                    context.assets.open("builtin_ara.m3u").use { stream ->
+                        parseFromStream(stream, portalId)
+                    }
+                }.getOrNull()?.takeIf { it.second.isNotEmpty() }?.let { return@withContext it }
+            }
+
+            parsedResult ?: (emptyList<CategoryItem>() to emptyList())
         }
 
     fun parseFromStream(inputStream: InputStream, portalId: Long): Pair<List<CategoryItem>, List<ChannelItem>> {
