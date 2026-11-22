@@ -25,12 +25,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
@@ -84,6 +87,7 @@ import com.kadri.stalkerplayerpro.data.local.PortalCacheStore
 import com.kadri.stalkerplayerpro.data.local.PortalEntity
 import com.kadri.stalkerplayerpro.data.local.SettingsDataStore
 import com.kadri.stalkerplayerpro.data.local.TvUserSettings
+import com.kadri.stalkerplayerpro.data.local.WatchHistoryEntity
 import com.kadri.stalkerplayerpro.data.model.CategoryItem
 import com.kadri.stalkerplayerpro.data.model.ChannelItem
 import com.kadri.stalkerplayerpro.data.model.EpgProgram
@@ -172,6 +176,10 @@ fun LiveTvScreen(
     val overrides by dao.observeChannelOverrides(portal.id).collectAsState(initial = emptyList())
     val lockedGroups by dao.observeLockedGroups(portal.id).collectAsState(initial = emptyList())
     val categoryRules by dao.observeCategoryRules(portal.id, "LIVE").collectAsState(initial = emptyList())
+    val allWatchHistory by dao.observeWatchHistory(portal.id).collectAsState(initial = emptyList())
+    val liveWatchHistory = remember(allWatchHistory) { allWatchHistory.filter { it.contentType == "LIVE" } }
+    var showLiveWatchHistoryDialog by remember { mutableStateOf(false) }
+
     val rulesMap = remember(categoryRules) { categoryRules.associateBy { it.categoryId } }
     var showCategoryManager by remember(portal.id) { mutableStateOf(false) }
 
@@ -191,73 +199,82 @@ fun LiveTvScreen(
     var channelForEpg by remember { mutableStateOf<ChannelItem?>(null) }
     var epgPrograms by remember { mutableStateOf<List<EpgProgram>>(emptyList()) }
     var isLoadingEpg by remember { mutableStateOf(false) }
+    var hasHandledStartupAutoPlay by remember(portal.id) { mutableStateOf(false) }
 
     val anyPopupOpen = showCategoryManager || pendingPinCategory != null || pendingPinActionLockToggle != null ||
-            channelForMenu != null || channelForRename != null || channelForEpg != null
+            channelForMenu != null || channelForRename != null || channelForEpg != null || showLiveWatchHistoryDialog
 
     fun loadLiveContent(forceRefresh: Boolean = false) {
         scope.launch {
-            if (!forceRefresh) {
-                val memCached = liveSessionMemoryCache[portal.id]
-                if (memCached != null && memCached.second.isNotEmpty()) {
-                    categories = memCached.first
-                    rawChannels = memCached.second
-                    isLoading = false
-                    hasError = false
-                    return@launch
+            try {
+                if (!forceRefresh) {
+                    val memCached = liveSessionMemoryCache[portal.id]
+                    if (memCached != null && memCached.second.isNotEmpty()) {
+                        categories = memCached.first
+                        rawChannels = memCached.second
+                        isLoading = false
+                        hasError = false
+                        return@launch
+                    }
+                    val cached = PortalCacheStore.loadLiveCache(context, portal.id)
+                    if (cached != null && cached.second.isNotEmpty()) {
+                        liveSessionMemoryCache[portal.id] = cached
+                        categories = cached.first
+                        rawChannels = cached.second
+                        isLoading = false
+                        hasError = false
+                        return@launch
+                    }
+                } else {
+                    liveSessionMemoryCache.remove(portal.id)
                 }
-                val cached = PortalCacheStore.loadLiveCache(context, portal.id)
-                if (cached != null && cached.second.isNotEmpty()) {
-                    liveSessionMemoryCache[portal.id] = cached
-                    categories = cached.first
-                    rawChannels = cached.second
-                    isLoading = false
-                    hasError = false
-                    return@launch
-                }
-            } else {
-                liveSessionMemoryCache.remove(portal.id)
-            }
 
-            isLoading = true
-            hasError = false
+                isLoading = true
+                hasError = false
 
-            when (portal.protocol) {
-                "XTREAM" -> coroutineScope {
-                    val catsDef = async { XtreamApiClient.getCategories(portal, "get_live_categories") }
-                    val chsDef = async { XtreamApiClient.getLiveStreams(portal) }
-                    val cats = catsDef.await()
-                    val chs = chsDef.await()
-                    categories = cats
-                    rawChannels = chs
-                    hasError = chs.isEmpty()
-                    if (chs.isNotEmpty()) {
-                        liveSessionMemoryCache[portal.id] = (cats to chs); PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                when (portal.protocol) {
+                    "XTREAM" -> coroutineScope {
+                        val catsDef = async { XtreamApiClient.getCategories(portal, "get_live_categories") }
+                        val chsDef = async { XtreamApiClient.getLiveStreams(portal) }
+                        val cats = catsDef.await()
+                        val chs = chsDef.await()
+                        categories = cats
+                        rawChannels = chs
+                        hasError = chs.isEmpty()
+                        if (chs.isNotEmpty()) {
+                            liveSessionMemoryCache[portal.id] = (cats to chs)
+                            PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                        }
+                    }
+                    "STALKER" -> coroutineScope {
+                        val catsDef = async { StalkerApiClient.getItvGenres(portal) }
+                        val chsDef = async { StalkerApiClient.getAllChannels(portal) }
+                        val cats = catsDef.await()
+                        val chs = chsDef.await()
+                        categories = cats
+                        rawChannels = chs
+                        hasError = chs.isEmpty()
+                        if (chs.isNotEmpty()) {
+                            liveSessionMemoryCache[portal.id] = (cats to chs)
+                            PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                        }
+                    }
+                    "M3U" -> {
+                        val (cats, chs) = M3uStreamParser.parseFromUrl(portal.url, portal.id)
+                        categories = cats
+                        rawChannels = chs
+                        hasError = chs.isEmpty()
+                        if (chs.isNotEmpty()) {
+                            liveSessionMemoryCache[portal.id] = (cats to chs)
+                            PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
+                        }
                     }
                 }
-                "STALKER" -> coroutineScope {
-                    val catsDef = async { StalkerApiClient.getItvGenres(portal) }
-                    val chsDef = async { StalkerApiClient.getAllChannels(portal) }
-                    val cats = catsDef.await()
-                    val chs = chsDef.await()
-                    categories = cats
-                    rawChannels = chs
-                    hasError = chs.isEmpty()
-                    if (chs.isNotEmpty()) {
-                        liveSessionMemoryCache[portal.id] = (cats to chs); PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
-                    }
-                }
-                "M3U" -> {
-                    val (cats, chs) = M3uStreamParser.parseFromUrl(portal.url, portal.id)
-                    categories = cats
-                    rawChannels = chs
-                    hasError = chs.isEmpty()
-                    if (chs.isNotEmpty()) {
-                        liveSessionMemoryCache[portal.id] = (cats to chs); PortalCacheStore.saveLiveCache(context, portal.id, cats, chs)
-                    }
-                }
+            } catch (t: Throwable) {
+                hasError = true
+            } finally {
+                isLoading = false
             }
-            isLoading = false
         }
     }
 
@@ -265,16 +282,55 @@ fun LiveTvScreen(
         loadLiveContent(forceRefresh = false)
     }
 
+    LaunchedEffect(rawChannels.isNotEmpty(), settings.startupChannelEnabled) {
+        if (!hasHandledStartupAutoPlay &&
+            settings.startupChannelEnabled &&
+            settings.startupChannelPortalId == portal.id &&
+            settings.startupChannelId.isNotBlank() &&
+            rawChannels.isNotEmpty()
+        ) {
+            hasHandledStartupAutoPlay = true
+            val targetChannel = rawChannels.find { it.id == settings.startupChannelId }
+            if (targetChannel != null) {
+                val chIdx = rawChannels.indexOf(targetChannel)
+                onPlayChannel(
+                    PlaybackRequest(
+                        portal = portal,
+                        contentType = "LIVE",
+                        itemId = targetChannel.id,
+                        title = targetChannel.name,
+                        subtitleQueryHint = targetChannel.epgNowTitle,
+                        posterOrLogo = targetChannel.logoUrl,
+                        streamCmdOrUrl = targetChannel.streamCmdOrUrl,
+                        channelList = rawChannels,
+                        currentChannelIndex = chIdx.coerceAtLeast(0)
+                    )
+                )
+            }
+        }
+    }
+
     val fullCategories = remember(categories, isAr, hiddenIdSet) {
         buildList {
             add(CategoryItem("ALL", if (isAr) "الكل" else "All Channels"))
             add(CategoryItem("FAV", if (isAr) "★ المفضلة" else "★ Favorites"))
+            add(CategoryItem("HISTORY", if (isAr) "سجل المشاهدة" else "Watch History"))
             addAll(categories.filter { it.id !in hiddenIdSet })
         }
     }
 
-    val filteredChannels = remember(rawChannels, selectedCategoryId, debouncedQuery, favIdSet, overrideMap, hiddenIdSet) {
-        rawChannels.asSequence()
+    val filteredChannels = remember(rawChannels, selectedCategoryId, debouncedQuery, favIdSet, overrideMap, hiddenIdSet, liveWatchHistory) {
+        val baseList = when (selectedCategoryId) {
+            "HISTORY" -> {
+                val histOrder = liveWatchHistory.mapIndexed { idx, h -> h.itemId to idx }.toMap()
+                rawChannels.filter { it.id in histOrder }.sortedBy { histOrder[it.id] ?: 9999 }
+            }
+            "ALL" -> rawChannels
+            "FAV" -> rawChannels.filter { it.id in favIdSet }
+            else -> rawChannels.filter { it.categoryId.trim() == selectedCategoryId.trim() }
+        }
+
+        baseList.asSequence()
             .filter { ch -> ch.categoryId !in hiddenIdSet }
             .mapNotNull { ch ->
                 val ov = overrideMap[ch.id]
@@ -285,7 +341,7 @@ fun LiveTvScreen(
             .filter { ch ->
                 when (selectedCategoryId) {
                     "ALL" -> true
-                    "FAV" -> ch.id in favIdSet
+                    "FAV", "HISTORY" -> true
                     else -> ch.categoryId == selectedCategoryId
                 }
             }
@@ -301,7 +357,7 @@ fun LiveTvScreen(
     val catRequesters = remember(portal.id) { HashMap<Int, FocusRequester>() }
     val channelRequesters = remember(portal.id) { HashMap<Int, FocusRequester>() }
     val manageCatRequester = remember { FocusRequester() }
-    val liveTopBarRequesters = remember { List(2) { FocusRequester() } }
+    val liveTopBarRequesters = remember { List(3) { FocusRequester() } }
     var focusedCatId by remember { mutableStateOf<String?>(null) }
     var hasRestoredInitialFocus by remember(portal.id) { mutableStateOf(false) }
 
@@ -544,7 +600,7 @@ fun LiveTvScreen(
                             .weight(1f)
                             .tvHorizontalStepItem(
                                 index = 0,
-                                totalCount = 2,
+                                totalCount = 3,
                                 requesters = liveTopBarRequesters,
                                 isAr = isAr,
                                 onExitStart = { runCatching { (catRequesters[0] ?: initialContentFocusRequester).requestFocus() }.isSuccess },
@@ -560,7 +616,7 @@ fun LiveTvScreen(
                         modifier = Modifier
                             .tvHorizontalStepItem(
                                 index = 1,
-                                totalCount = 2,
+                                totalCount = 3,
                                 requesters = liveTopBarRequesters,
                                 isAr = isAr,
                                 onUp = { onNavigateToTopBar() },
@@ -572,6 +628,45 @@ fun LiveTvScreen(
                             )
                             .tvFocusItem(
                                 focusRequester = liveTopBarRequesters[1],
+                                shape = RoundedCornerShape(10.dp),
+                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = { showLiveWatchHistoryDialog = true }
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isAr) "سجل المشاهدة (${liveWatchHistory.size})" else "History (${liveWatchHistory.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .tvHorizontalStepItem(
+                                index = 2,
+                                totalCount = 3,
+                                requesters = liveTopBarRequesters,
+                                isAr = isAr,
+                                onUp = { onNavigateToTopBar() },
+                                onDown = {
+                                    if (filteredChannels.isNotEmpty()) {
+                                        runCatching { (channelRequesters[targetChannelIndex] ?: channelRequesters[0] ?: channelsEntryRequester).requestFocus() }.isSuccess
+                                    } else false
+                                }
+                            )
+                            .tvFocusItem(
+                                focusRequester = liveTopBarRequesters[2],
                                 shape = RoundedCornerShape(10.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                 onClick = { loadLiveContent(forceRefresh = true) }
@@ -790,7 +885,19 @@ fun LiveTvScreen(
 
         channelForMenu?.let { ch ->
             val isFav = ch.id in favIdSet
+            val isStartup = settings.startupChannelEnabled &&
+                    settings.startupChannelPortalId == portal.id &&
+                    settings.startupChannelId == ch.id
             val options = listOf(
+                TvMenuOption(
+                    id = "startup",
+                    label = if (isStartup) {
+                        if (isAr) "إلغاء القناة من بدأ التشغيل" else "Disable Channel Startup"
+                    } else {
+                        if (isAr) "اجعل القناة في بدأ التشغيل" else "Play Channel on Startup"
+                    },
+                    icon = if (isStartup) Icons.Default.CheckCircle else Icons.Default.PlayArrow
+                ),
                 TvMenuOption(
                     id = "fav",
                     label = if (isFav) {
@@ -829,8 +936,26 @@ fun LiveTvScreen(
             TvActionMenuDialog(
                 title = ch.name,
                 options = options,
+                restoreFocusRequester = channelRequesters[targetChannelIndex] ?: channelsEntryRequester,
                 onSelect = { opt ->
                     when (opt.id) {
+                        "startup" -> scope.launch {
+                            if (isStartup) {
+                                settingsStore?.setStartupChannel(0L, "", false)
+                                Toast.makeText(
+                                    context,
+                                    if (isAr) "تم إلغاء التشغيل التلقائي عند البدء" else "Startup playback disabled",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                settingsStore?.setStartupChannel(portal.id, ch.id, true)
+                                Toast.makeText(
+                                    context,
+                                    if (isAr) "تم تعيين \"${ch.name}\" لتبدأ تلقائياً عند التشغيل" else "\"${ch.name}\" set to play on startup",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
                         "fav" -> scope.launch {
                             if (isFav) {
                                 dao.removeFavorite(portal.id, "LIVE", ch.id)
@@ -974,6 +1099,167 @@ fun LiveTvScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showLiveWatchHistoryDialog) {
+            val histListState = rememberLazyListState()
+            val histRequesters = remember(liveWatchHistory.size) { HashMap<Int, FocusRequester>() }
+            val clearHistoryBtnReq = remember { FocusRequester() }
+            val closeHistBtnReq = remember { FocusRequester() }
+            TvModalDialog(
+                title = if (isAr) "سجل المشاهدة (${liveWatchHistory.size})" else "Watch History (${liveWatchHistory.size})",
+                onDismiss = { showLiveWatchHistoryDialog = false },
+                maxWidth = 640.dp,
+                restoreFocusRequester = liveTopBarRequesters[1],
+                closeBtnRequester = closeHistBtnReq,
+                footer = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (liveWatchHistory.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .onPreviewKeyEvent { ev ->
+                                        if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
+                                            val lastIdx = (liveWatchHistory.size - 1).coerceAtLeast(0)
+                                            runCatching { histRequesters[lastIdx]?.requestFocus() }.isSuccess
+                                        } else false
+                                    }
+                                    .tvFocusItem(
+                                        focusRequester = clearHistoryBtnReq,
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = MaterialTheme.colorScheme.error,
+                                        onClick = {
+                                            scope.launch {
+                                                liveWatchHistory.forEach { h ->
+                                                    dao.removeWatchHistory(portal.id, h.itemId)
+                                                }
+                                            }
+                                        }
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 9.dp)
+                            ) {
+                                Text(
+                                    text = if (isAr) "مسح سجل البث المباشر" else "Clear Live History",
+                                    color = MaterialTheme.colorScheme.onError,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.width(1.dp))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
+                                        if (liveWatchHistory.isNotEmpty()) {
+                                            runCatching { histRequesters[(liveWatchHistory.size - 1).coerceAtLeast(0)]?.requestFocus() }.isSuccess
+                                        } else {
+                                            runCatching { closeHistBtnReq.requestFocus() }.isSuccess
+                                        }
+                                    } else false
+                                }
+                                .tvFocusItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    onClick = { showLiveWatchHistoryDialog = false }
+                                )
+                                .padding(horizontal = 20.dp, vertical = 9.dp)
+                        ) {
+                            Text(
+                                text = if (isAr) "إغلاق" else "Close",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                    }
+                }
+            ) { firstReq ->
+                if (liveWatchHistory.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = if (isAr) "سجل مشاهدة القنوات فارغ حالياً" else "Live TV watch history is empty",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    histRequesters[0] = firstReq
+                    LazyColumn(
+                        state = histListState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().height(280.dp)
+                    ) {
+                        itemsIndexed(
+                            items = liveWatchHistory,
+                            key = { idx, entry -> "live_hist_dlg_${entry.id}_${entry.itemId}_$idx" }
+                        ) { hIdx, entry ->
+                            val hReq = if (hIdx == 0) firstReq else histRequesters.getOrPut(hIdx) { FocusRequester() }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvVerticalStepItem(
+                                        index = hIdx,
+                                        totalCount = liveWatchHistory.size,
+                                        listState = histListState,
+                                        requesters = histRequesters,
+                                        scope = scope,
+                                        onExitTop = { runCatching { closeHistBtnReq.requestFocus() }.isSuccess },
+                                        onExitBottom = { runCatching { clearHistoryBtnReq.requestFocus() }.isSuccess }
+                                    )
+                                    .tvFocusItem(
+                                        focusRequester = hReq,
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                        onClick = {
+                                            showLiveWatchHistoryDialog = false
+                                            val chIdx = rawChannels.indexOfFirst { it.id == entry.itemId }.coerceAtLeast(0)
+                                            onPlayChannel(
+                                                PlaybackRequest(
+                                                    portal = portal,
+                                                    contentType = "LIVE",
+                                                    itemId = entry.itemId,
+                                                    title = entry.title,
+                                                    subtitleQueryHint = entry.title,
+                                                    posterOrLogo = entry.posterUrl,
+                                                    streamCmdOrUrl = entry.streamCmdOrUrl,
+                                                    channelList = rawChannels,
+                                                    currentChannelIndex = chIdx
+                                                )
+                                            )
+                                        }
+                                    )
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = entry.title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }

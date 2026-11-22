@@ -73,6 +73,13 @@ fun TvModalDialog(
 ) {
     val extraColors = LocalTvExtraColors.current
 
+    val safeDismiss = remember(restoreFocusRequester, onDismiss) {
+        {
+            restoreFocusRequester?.let { runCatching { it.requestFocus() } }
+            onDismiss()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -82,8 +89,15 @@ fun TvModalDialog(
     ) {
         TvFocusTrap(
             restoreFocusRequester = restoreFocusRequester,
-            onDismiss = onDismiss
+            onDismiss = safeDismiss
         ) { firstRequester ->
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(80)
+                val success = runCatching { firstRequester.requestFocus() }.isSuccess
+                if (!success) {
+                    runCatching { closeBtnRequester.requestFocus() }
+                }
+            }
             Column(
                 modifier = Modifier
                     .widthIn(min = 320.dp, max = maxWidth)
@@ -119,7 +133,7 @@ fun TvModalDialog(
                                 focusRequester = closeBtnRequester,
                                 shape = RoundedCornerShape(8.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.30f),
-                                onClick = onDismiss
+                                onClick = safeDismiss
                             )
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center

@@ -218,7 +218,7 @@ fun TvPlayerScreen(
     var clockText by remember { mutableStateOf(LocaleUtils.formatClock()) }
 
     val anyOverlayModal = showChannelDrawer || showHistoryDrawer || showQuickMenu ||
-            showSubtitleSearchDialog || showSubtitleStyleDialog || showAudioTracksDialog || showEmbeddedSubtitlesDialog
+            showSubtitleSearchDialog || showSubtitleStyleDialog || showAudioTracksDialog || showEmbeddedSubtitlesDialog || showSubtitleSyncBar
 
     // إيقاف المشغل وتحريره نهائياً عند إغلاق نافذة PiP أو الضغط على زر الهوم (ON_STOP)
     DisposableEffect(componentActivity) {
@@ -833,15 +833,16 @@ fun TvPlayerScreen(
         }
 
         // 10. شريط تزامن الترجمة
-        if (showSubtitleSyncBar && !anyOverlayModal) {
+        if (showSubtitleSyncBar) {
             SubtitleSyncFloatingBar(
                 offsetMs = subtitleOffsetMs,
                 isAr = isAr,
                 onAdjustOffset = { delta -> subtitleOffsetMs += delta },
                 onClose = { showSubtitleSyncBar = false },
+                restoreFocusRequester = bottomBarInitialFocusRequester,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 24.dp)
+                    .padding(top = 28.dp)
             )
         }
 
@@ -1544,63 +1545,144 @@ private fun SubtitleSyncFloatingBar(
     isAr: Boolean,
     onAdjustOffset: (Long) -> Unit,
     onClose: () -> Unit,
+    restoreFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     val extraColors = LocalTvExtraColors.current
-    Row(
-        modifier = modifier
-            .background(extraColors.panelOverlay, RoundedCornerShape(12.dp))
-            .border(1.5.dp, extraColors.focusRing, RoundedCornerShape(12.dp))
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = if (isAr) "تزامن الترجمة:" else "Subtitle Sync:",
-            style = MaterialTheme.typography.labelLarge,
-            color = Color.White
+    val syncOptions = remember {
+        listOf(
+            -500L to "-0.5s",
+            -100L to "-0.1s",
+            100L to "+0.1s",
+            500L to "+0.5s"
         )
+    }
+    val totalButtons = 6
+    val btnRequesters = remember { List(totalButtons) { FocusRequester() } }
 
-        listOf(-500L to "-0.5s", -100L to "-0.1s", 100L to "+0.1s", 500L to "+0.5s").forEach { (delta, lbl) ->
+    val safeClose = remember(restoreFocusRequester, onClose) {
+        {
+            restoreFocusRequester?.let { runCatching { it.requestFocus() } }
+            onClose()
+        }
+    }
+
+    BackHandler {
+        safeClose()
+    }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(80)
+        runCatching { btnRequesters[2].requestFocus() }
+    }
+
+    Box(
+        modifier = modifier
+            .background(extraColors.panelOverlay, RoundedCornerShape(14.dp))
+            .border(2.dp, extraColors.focusRing, RoundedCornerShape(14.dp))
+            .onPreviewKeyEvent { ev ->
+                if (ev.type == KeyEventType.KeyDown) {
+                    when (ev.key) {
+                        Key.Back, Key.Escape -> {
+                            safeClose()
+                            true
+                        }
+                        Key.DirectionUp, Key.DirectionDown -> {
+                            safeClose()
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            }
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = if (isAr) "تزامن الترجمة:" else "Subtitle Sync:",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+
+            syncOptions.forEachIndexed { idx, (delta, lbl) ->
+                Box(
+                    modifier = Modifier
+                        .tvHorizontalStepItem(
+                            index = idx,
+                            totalCount = totalButtons,
+                            requesters = btnRequesters,
+                            isAr = isAr
+                        )
+                        .tvFocusItem(
+                            focusRequester = btnRequesters[idx],
+                            shape = RoundedCornerShape(8.dp),
+                            unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                            onClick = { onAdjustOffset(delta) }
+                        )
+                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                ) {
+                    LtrText(
+                        text = lbl,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            val resetIdx = 4
             Box(
                 modifier = Modifier
+                    .tvHorizontalStepItem(
+                        index = resetIdx,
+                        totalCount = totalButtons,
+                        requesters = btnRequesters,
+                        isAr = isAr
+                    )
                     .tvFocusItem(
+                        focusRequester = btnRequesters[resetIdx],
                         shape = RoundedCornerShape(8.dp),
-                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                        onClick = { onAdjustOffset(delta) }
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        onClick = { onAdjustOffset(-offsetMs) }
                     )
                     .padding(horizontal = 10.dp, vertical = 7.dp)
             ) {
                 LtrText(
-                    text = lbl,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    text = LocaleUtils.formatOffsetSeconds(offsetMs),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Bold
                 )
             }
-        }
 
-        LtrText(
-            text = LocaleUtils.formatOffsetSeconds(offsetMs),
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.secondary,
-            fontWeight = FontWeight.Bold
-        )
-
-        Box(
-            modifier = Modifier
-                .tvFocusItem(
-                    shape = RoundedCornerShape(8.dp),
-                    unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
-                    onClick = onClose
+            val closeIdx = 5
+            Box(
+                modifier = Modifier
+                    .tvHorizontalStepItem(
+                        index = closeIdx,
+                        totalCount = totalButtons,
+                        requesters = btnRequesters,
+                        isAr = isAr
+                    )
+                    .tvFocusItem(
+                        focusRequester = btnRequesters[closeIdx],
+                        shape = RoundedCornerShape(8.dp),
+                        unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                        onClick = { safeClose() }
+                    )
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
+            ) {
+                Text(
+                    text = if (isAr) "حفظ وإغلاق" else "Save & Close",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold
                 )
-                .padding(horizontal = 12.dp, vertical = 7.dp)
-        ) {
-            Text(
-                text = if (isAr) "حفظ" else "Save",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
+            }
         }
     }
 }

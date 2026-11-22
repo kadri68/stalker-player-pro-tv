@@ -33,7 +33,10 @@ data class TvUserSettings(
     val subTextColor: Long = 0xFFFFD600,
     val subFontSizeSp: Float = 38f,
     val subBgAlpha: Float = 0.65f,
-    val searchHistory: List<String> = emptyList()
+    val searchHistory: List<String> = emptyList(),
+    val startupChannelId: String = "",
+    val startupChannelPortalId: Long = 0L,
+    val startupChannelEnabled: Boolean = false
 )
 
 class SettingsDataStore(private val context: Context) {
@@ -62,6 +65,10 @@ class SettingsDataStore(private val context: Context) {
         val KEY_SUB_SIZE = floatPreferencesKey("sub_size")
         val KEY_SUB_BG_ALPHA = floatPreferencesKey("sub_bg_alpha")
         val KEY_SEARCH_HISTORY = stringPreferencesKey("search_history_list")
+
+        val KEY_STARTUP_CHANNEL_ID = stringPreferencesKey("startup_channel_id")
+        val KEY_STARTUP_PORTAL_ID = longPreferencesKey("startup_portal_id")
+        val KEY_STARTUP_ENABLED = intPreferencesKey("startup_enabled")
     }
 
     val settingsFlow: Flow<TvUserSettings> = context.dataStore.data.map { prefs ->
@@ -92,7 +99,10 @@ class SettingsDataStore(private val context: Context) {
             subTextColor = prefs[KEY_SUB_COLOR] ?: 0xFFFFD600,
             subFontSizeSp = prefs[KEY_SUB_SIZE] ?: 38f,
             subBgAlpha = prefs[KEY_SUB_BG_ALPHA] ?: 0.65f,
-            searchHistory = parsedHistory
+            searchHistory = parsedHistory,
+            startupChannelId = prefs[KEY_STARTUP_CHANNEL_ID].orEmpty(),
+            startupChannelPortalId = prefs[KEY_STARTUP_PORTAL_ID] ?: 0L,
+            startupChannelEnabled = (prefs[KEY_STARTUP_ENABLED] ?: 0) == 1
         )
     }
 
@@ -221,6 +231,14 @@ class SettingsDataStore(private val context: Context) {
             it[KEY_SUB_COLOR] = subColor
             it[KEY_SUB_SIZE] = subSizeSp
             it[KEY_SUB_BG_ALPHA] = subBgAlpha
+        }
+    }
+
+    suspend fun setStartupChannel(portalId: Long, channelId: String, enabled: Boolean) {
+        context.dataStore.edit {
+            it[KEY_STARTUP_PORTAL_ID] = portalId
+            it[KEY_STARTUP_CHANNEL_ID] = channelId
+            it[KEY_STARTUP_ENABLED] = if (enabled) 1 else 0
         }
     }
 }

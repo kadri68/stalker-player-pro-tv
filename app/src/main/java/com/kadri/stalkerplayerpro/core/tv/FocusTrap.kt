@@ -65,9 +65,15 @@ fun TvFocusTrap(
     onDismiss: () -> Unit,
     content: @Composable (firstItemRequester: FocusRequester) -> Unit
 ) {
+    val handleDismiss = remember(restoreFocusRequester, onDismiss) {
+        {
+            restoreFocusRequester?.let { runCatching { it.requestFocus() } }
+            onDismiss()
+        }
+    }
+
     BackHandler {
-        restoreFocusRequester?.let { runCatching { it.requestFocus() } }
-        onDismiss()
+        handleDismiss()
     }
 
     LaunchedEffect(Unit) {
@@ -78,6 +84,12 @@ fun TvFocusTrap(
     Box(
         modifier = modifier
             .focusGroup()
+            .onPreviewKeyEvent { ev ->
+                if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Back || ev.key == Key.Escape)) {
+                    handleDismiss()
+                    true
+                } else false
+            }
             .onKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown &&
                     (ev.key == Key.DirectionUp || ev.key == Key.DirectionDown)

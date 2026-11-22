@@ -453,9 +453,8 @@ private fun MainTvRoot(
 
                         Text(
                             text = remainingDaysText,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                             color = remainingColor,
-                            fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
                     }
@@ -684,7 +683,8 @@ private fun MainTvRoot(
             TvModalDialog(
                 title = if (isAr) "تأكيد الخروج" else "Confirm Exit",
                 onDismiss = { showExitConfirmDialog = false },
-                maxWidth = 420.dp
+                maxWidth = 420.dp,
+                restoreFocusRequester = tabRequesters[TvTab.PORTALS.index]
             ) { firstRequester ->
                 Text(
                     text = if (isAr) "هل تريد الخروج من تطبيق stalker-player pro؟" else "Do you want to exit stalker-player pro?",

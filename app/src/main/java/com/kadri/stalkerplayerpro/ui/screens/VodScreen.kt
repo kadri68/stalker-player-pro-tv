@@ -176,68 +176,73 @@ fun VodScreen(
 
     fun fetchInitialData(catId: String = selectedCategoryId, forceRefresh: Boolean = false) {
         scope.launch {
-            visibleCount = 30
-            currentStalkerPage = 1
+            try {
+                visibleCount = 30
+                currentStalkerPage = 1
 
-            if (catId == "HISTORY") {
-                isLoading = false
-                hasError = false
-                return@launch
-            }
-
-            if (!forceRefresh) {
-                val cached = PortalCacheStore.loadVodCache(context, portal.id, isSeriesMode, catId)
-                if (cached != null && cached.second.isNotEmpty()) {
-                    if (cached.first.isNotEmpty()) categories = cached.first
-                    allLoadedItems = cached.second
+                if (catId == "HISTORY") {
                     isLoading = false
                     hasError = false
                     return@launch
                 }
-            }
 
-            isLoading = true
-            hasError = false
+                if (!forceRefresh) {
+                    val cached = PortalCacheStore.loadVodCache(context, portal.id, isSeriesMode, catId)
+                    if (cached != null && cached.second.isNotEmpty()) {
+                        if (cached.first.isNotEmpty()) categories = cached.first
+                        allLoadedItems = cached.second
+                        isLoading = false
+                        hasError = false
+                        return@launch
+                    }
+                }
 
-            when (portal.protocol) {
-                "XTREAM" -> coroutineScope {
-                    val catAction = if (isSeriesMode) "get_series_categories" else "get_vod_categories"
-                    val catsDef = if (categories.isEmpty() || forceRefresh) {
-                        async { XtreamApiClient.getCategories(portal, catAction) }
-                    } else null
-                    val itemsDef = async {
-                        if (isSeriesMode) XtreamApiClient.getSeriesList(portal, catId)
-                        else XtreamApiClient.getVodStreams(portal, catId)
+                isLoading = true
+                hasError = false
+
+                when (portal.protocol) {
+                    "XTREAM" -> coroutineScope {
+                        val catAction = if (isSeriesMode) "get_series_categories" else "get_vod_categories"
+                        val catsDef = if (categories.isEmpty() || forceRefresh) {
+                            async { XtreamApiClient.getCategories(portal, catAction) }
+                        } else null
+                        val itemsDef = async {
+                            if (isSeriesMode) XtreamApiClient.getSeriesList(portal, catId)
+                            else XtreamApiClient.getVodStreams(portal, catId)
+                        }
+                        if (catsDef != null) categories = catsDef.await()
+                        val items = itemsDef.await()
+                        allLoadedItems = items
+                        hasError = items.isEmpty()
+                        if (items.isNotEmpty()) {
+                            PortalCacheStore.saveVodCache(context, portal.id, isSeriesMode, catId, categories, items)
+                        }
                     }
-                    if (catsDef != null) categories = catsDef.await()
-                    val items = itemsDef.await()
-                    allLoadedItems = items
-                    hasError = items.isEmpty()
-                    if (items.isNotEmpty()) {
-                        PortalCacheStore.saveVodCache(context, portal.id, isSeriesMode, catId, categories, items)
+                    "STALKER" -> coroutineScope {
+                        val stkType = if (isSeriesMode) "series" else "vod"
+                        val catsDef = if (categories.isEmpty() || forceRefresh) {
+                            async { StalkerApiClient.getVodCategories(portal, stkType) }
+                        } else null
+                        val stkCat = if (catId == "ALL") "*" else catId
+                        val itemsDef = async { StalkerApiClient.getVodOrderedList(portal, stkType, stkCat, page = 1) }
+                        if (catsDef != null) categories = catsDef.await()
+                        val items = itemsDef.await()
+                        allLoadedItems = items
+                        hasError = items.isEmpty()
+                        if (items.isNotEmpty()) {
+                            PortalCacheStore.saveVodCache(context, portal.id, isSeriesMode, catId, categories, items)
+                        }
+                    }
+                    else -> {
+                        allLoadedItems = emptyList()
+                        hasError = false
                     }
                 }
-                "STALKER" -> coroutineScope {
-                    val stkType = if (isSeriesMode) "series" else "vod"
-                    val catsDef = if (categories.isEmpty() || forceRefresh) {
-                        async { StalkerApiClient.getVodCategories(portal, stkType) }
-                    } else null
-                    val stkCat = if (catId == "ALL") "*" else catId
-                    val itemsDef = async { StalkerApiClient.getVodOrderedList(portal, stkType, stkCat, page = 1) }
-                    if (catsDef != null) categories = catsDef.await()
-                    val items = itemsDef.await()
-                    allLoadedItems = items
-                    hasError = items.isEmpty()
-                    if (items.isNotEmpty()) {
-                        PortalCacheStore.saveVodCache(context, portal.id, isSeriesMode, catId, categories, items)
-                    }
-                }
-                else -> {
-                    allLoadedItems = emptyList()
-                    hasError = false
-                }
+            } catch (t: Throwable) {
+                hasError = true
+            } finally {
+                isLoading = false
             }
-            isLoading = false
         }
     }
 
@@ -787,6 +792,7 @@ fun VodScreen(
                 title = if (isAr) "سجل المشاهدة (${watchHistory.size})" else "Watch History (${watchHistory.size})",
                 onDismiss = { showWatchHistoryDialog = false },
                 maxWidth = 640.dp,
+                restoreFocusRequester = vodTopBarRequesters[1],
                 closeBtnRequester = closeHistBtnReq,
                 footer = {
                     Row(

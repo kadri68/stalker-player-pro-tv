@@ -63,6 +63,9 @@ object BackupManager {
             context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let { candidateDirs.add(it) }
         }
         runCatching {
+            context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)?.let { candidateDirs.add(it) }
+        }
+        runCatching {
             context.getExternalFilesDir(null)?.let { candidateDirs.add(it) }
         }
         candidateDirs.add(context.filesDir)
@@ -333,11 +336,44 @@ object BackupManager {
         settingsStore: SettingsDataStore,
         options: BackupSelectionOptions = BackupSelectionOptions()
     ): String? = withContext(Dispatchers.IO) {
+        val json = buildBackupJsonString(dao, settingsStore, options)
+        val candidateDirs = linkedSetOf<File>()
+
+        // 1. مجلد التنزيلات العام
         runCatching {
-            val json = buildBackupJsonString(dao, settingsStore, options)
-            val file = getDefaultBackupFile(context)
-            file.writeText(json, Charsets.UTF_8)
-            file.absolutePath
-        }.getOrNull()
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)?.let { candidateDirs.add(it) }
+        }
+        // 2. مجلد المستندات العام
+        runCatching {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)?.let { candidateDirs.add(it) }
+        }
+        // 3. مجلد التنزيلات الخاص بالتطبيق على التخزين الخارجي (مضمون الكتابة على Android TV و Android 10+)
+        runCatching {
+            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let { candidateDirs.add(it) }
+        }
+        // 4. مجلد المستندات الخاص بالتطبيق
+        runCatching {
+            context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)?.let { candidateDirs.add(it) }
+        }
+        // 5. مجلد التطبيق الخارجي الأساسي
+        runCatching {
+            context.getExternalFilesDir(null)?.let { candidateDirs.add(it) }
+        }
+        // 6. التخزين الداخلي للتطبيق (لا يفشل إطلاقاً كخيار أخير)
+        candidateDirs.add(context.filesDir)
+
+        for (dir in candidateDirs) {
+            val success = runCatching {
+                if (!dir.exists()) dir.mkdirs()
+                val targetFile = File(dir, DEFAULT_BACKUP_FILENAME)
+                targetFile.writeText(json, Charsets.UTF_8)
+                targetFile.absolutePath
+            }.getOrNull()
+
+            if (success != null) {
+                return@withContext success
+            }
+        }
+        null
     }
 }

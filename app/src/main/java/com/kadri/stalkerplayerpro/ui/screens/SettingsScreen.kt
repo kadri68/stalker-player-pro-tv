@@ -453,9 +453,9 @@ fun SettingsScreen(
                             Toast.makeText(
                                 context,
                                 if (savedPath != null) {
-                                    if (isAr) "تم الحفظ في: $savedPath" else "Saved to: $savedPath"
+                                    if (isAr) "تم تصدير النسخة الاحتياطية بنجاح إلى:\n$savedPath" else "Backup exported successfully to:\n$savedPath"
                                 } else {
-                                    if (isAr) "تعذر التصدير" else "Export failed"
+                                    if (isAr) "فشل تصدير النسخة الاحتياطية! تحقق من التخزين." else "Failed to export backup! Check storage."
                                 },
                                 Toast.LENGTH_LONG
                             ).show()
@@ -620,17 +620,20 @@ fun SettingsScreen(
         }
 
         if (showAboutDialog) {
+            val closeAboutBtnReq = remember { FocusRequester() }
             TvModalDialog(
                 title = if (isAr) "حول التطبيق" else "About Application",
                 onDismiss = { showAboutDialog = false },
                 maxWidth = 500.dp,
                 restoreFocusRequester = rowReq(9),
+                closeBtnRequester = closeAboutBtnReq,
                 scrollableBody = true,
                 footer = {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                         Box(
                             modifier = Modifier
                                 .tvFocusItem(
+                                    focusRequester = closeAboutBtnReq,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
                                     onClick = { showAboutDialog = false }
@@ -645,7 +648,11 @@ fun SettingsScreen(
                         }
                     }
                 }
-            ) { _ ->
+            ) { firstReq ->
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(60)
+                    runCatching { closeAboutBtnReq.requestFocus() }
+                }
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -1327,9 +1334,10 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                     .focusRequester(osUserReq)
                     .onPreviewKeyEvent { ev ->
                         if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (ev.key) {
-                            Key.DirectionUp -> runCatching { osKeyReq.requestFocus() }.isSuccess
-                            Key.DirectionDown -> runCatching { osLoginReq.requestFocus() }.isSuccess
+                        when {
+                            ev.key == Key.DirectionUp -> runCatching { osKeyReq.requestFocus() }.isSuccess
+                            ev.key == Key.DirectionDown -> runCatching { osLoginReq.requestFocus() }.isSuccess
+                            (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight) -> runCatching { osPassReq.requestFocus() }.isSuccess
                             else -> false
                         }
                     }
@@ -1344,9 +1352,10 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                     .focusRequester(osPassReq)
                     .onPreviewKeyEvent { ev ->
                         if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (ev.key) {
-                            Key.DirectionUp -> runCatching { osKeyReq.requestFocus() }.isSuccess
-                            Key.DirectionDown -> runCatching { osLoginReq.requestFocus() }.isSuccess
+                        when {
+                            ev.key == Key.DirectionUp -> runCatching { osKeyReq.requestFocus() }.isSuccess
+                            ev.key == Key.DirectionDown -> runCatching { osLoginReq.requestFocus() }.isSuccess
+                            (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft) -> runCatching { osUserReq.requestFocus() }.isSuccess
                             else -> false
                         }
                     }
