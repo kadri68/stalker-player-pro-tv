@@ -319,28 +319,6 @@ private fun MainTvRoot(
         }
     }
 
-    LaunchedEffect(activePortal?.id) {
-        val p = activePortal ?: return@LaunchedEffect
-        if (p.expiryTimestampMs == 0L && p.url != BUILTIN_FREE_AR_M3U_URL) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val updated = when (p.protocol) {
-                    "STALKER" -> {
-                        val (valid, expMs) = com.kadri.stalkerplayerpro.data.network.StalkerApiClient.checkPortalAccount(p.url, p.mac)
-                        if (expMs > 0L) p.copy(expiryTimestampMs = expMs, statusText = if (valid) "Active" else p.statusText) else null
-                    }
-                    "XTREAM" -> {
-                        val st = com.kadri.stalkerplayerpro.data.network.XtreamApiClient.checkAccount(p.url, p.username, p.password)
-                        if (st.expiryTimestampMs > 0L) p.copy(expiryTimestampMs = st.expiryTimestampMs, statusText = st.statusText) else null
-                    }
-                    else -> null
-                }
-                if (updated != null) {
-                    dao.updatePortal(updated)
-                }
-            }
-        }
-    }
-
     LaunchedEffect(activePlayback != null, settings.autoPipEnabled) {
         onPlayerActiveChanged(activePlayback != null)
     }

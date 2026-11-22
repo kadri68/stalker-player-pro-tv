@@ -41,7 +41,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -267,7 +266,7 @@ fun VodScreen(
 
     val gridState = rememberLazyGridState()
     val itemsEntryRequester = remember { FocusRequester() }
-    val vodCatRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
+    val vodCatRequesters = remember(portal.id, isSeriesMode) { HashMap<Int, FocusRequester>() }
     val vodManageCatRequester = remember { FocusRequester() }
     val vodTopBarRequesters = remember { List(3) { FocusRequester() } }
     var showWatchHistoryDialog by remember { mutableStateOf(false) }
@@ -781,7 +780,7 @@ fun VodScreen(
 
         if (showWatchHistoryDialog) {
             val histListState = rememberLazyListState()
-            val histRequesters = remember(watchHistory.size) { mutableStateMapOf<Int, FocusRequester>() }
+            val histRequesters = remember(watchHistory.size) { HashMap<Int, FocusRequester>() }
             val clearHistoryBtnReq = remember { FocusRequester() }
             val closeHistBtnReq = remember { FocusRequester() }
             TvModalDialog(
@@ -959,7 +958,7 @@ fun VodScreen(
                     val seasonRequesters = remember(seasons) {
                         List(seasons.size) { idx -> if (idx == 0) firstRequester else FocusRequester() }
                     }
-                    val episodeRequesters = remember(selectedSeasonNum, episodes.size) { mutableStateMapOf<Int, FocusRequester>() }
+                    val episodeRequesters = remember(selectedSeasonNum, episodes.size) { HashMap<Int, FocusRequester>() }
                     val episodeListState = rememberLazyListState()
 
                     if (seasons.isNotEmpty()) {
