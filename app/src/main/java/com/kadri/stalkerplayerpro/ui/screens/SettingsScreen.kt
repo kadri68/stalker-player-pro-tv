@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,7 +115,7 @@ fun SettingsScreen(
     var isImportingBackup by remember { mutableStateOf(false) }
 
     val anyDialog = showPinDialog || showUnifiedAudioSubDialog || showAssistantDialog || showAboutDialog ||
-            showExportDialog || showImportDialog
+            showExportDialog || showImportDialog || showBackupFilePickerDialog
 
     val pendingExportJson = remember { mutableStateOf("") }
 
@@ -179,6 +180,7 @@ fun SettingsScreen(
         else -> if (isAr) "كلاهما (OpenSubtitles + Subdl)" else "Both (OpenSubtitles + Subdl)"
     }
 
+    var lastFocusedRowIndex by remember { mutableIntStateOf(0) }
     val settingsListState = rememberLazyListState()
     val settingsRowRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
     settingsRowRequesters[0] = initialContentFocusRequester
@@ -192,6 +194,19 @@ fun SettingsScreen(
     )
     fun rowReq(rIdx: Int): FocusRequester =
         if (rIdx == 0) initialContentFocusRequester else settingsRowRequesters.getOrPut(rIdx) { FocusRequester() }
+
+    LaunchedEffect(anyDialog) {
+        if (!anyDialog && lastFocusedRowIndex in 0..9) {
+            kotlinx.coroutines.delay(60)
+            runCatching {
+                settingsListState.scrollToItem(lastFocusedRowIndex)
+            }
+            kotlinx.coroutines.delay(30)
+            runCatching {
+                rowReq(lastFocusedRowIndex).requestFocus()
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -210,7 +225,9 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(0),
                     stepModifier = rowStepMod(0),
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 0 },
                     onClick = {
+                        lastFocusedRowIndex = 0
                         val next = (currentTheme.id + 1) % AppThemeId.entries.size
                         scope.launch { settingsStore.updateTheme(next) }
                     }
@@ -225,7 +242,9 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(1),
                     stepModifier = rowStepMod(1),
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 1 },
                     onClick = {
+                        lastFocusedRowIndex = 1
                         val next = (currentFont.id + 1) % TvFontScale.entries.size
                         scope.launch { settingsStore.updateFontScale(next) }
                     }
@@ -240,7 +259,9 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(2),
                     stepModifier = rowStepMod(2),
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 2 },
                     onClick = {
+                        lastFocusedRowIndex = 2
                         val nextLang = if (isAr) "en" else "ar"
                         scope.launch { settingsStore.updateLanguage(nextLang) }
                     }
@@ -255,7 +276,9 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(3),
                     stepModifier = rowStepMod(3),
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 3 },
                     onClick = {
+                        lastFocusedRowIndex = 3
                         scope.launch { settingsStore.updateShowClock(!settings.showClock) }
                     }
                 )
@@ -269,7 +292,11 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(4),
                     stepModifier = rowStepMod(4),
-                    onClick = { showPinDialog = true }
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 4 },
+                    onClick = {
+                        lastFocusedRowIndex = 4
+                        showPinDialog = true
+                    }
                 )
             }
 
@@ -284,7 +311,11 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(5),
                     stepModifier = rowStepMod(5),
-                    onClick = { showUnifiedAudioSubDialog = true }
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 5 },
+                    onClick = {
+                        lastFocusedRowIndex = 5
+                        showUnifiedAudioSubDialog = true
+                    }
                 )
             }
 
@@ -296,7 +327,9 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(6),
                     stepModifier = rowStepMod(6),
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 6 },
                     onClick = {
+                        lastFocusedRowIndex = 6
                         scope.launch {
                             val all = dao.getAllPortals().filter { it.url != BUILTIN_FREE_AR_M3U_URL }
                             exportPortalsList = all.map {
@@ -321,7 +354,9 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(7),
                     stepModifier = rowStepMod(7),
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 7 },
                     onClick = {
+                        lastFocusedRowIndex = 7
                         if (!isImportingBackup) {
                             scope.launch {
                                 isImportingBackup = true
@@ -375,7 +410,11 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(8),
                     stepModifier = rowStepMod(8),
-                    onClick = { showAssistantDialog = true }
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 8 },
+                    onClick = {
+                        lastFocusedRowIndex = 8
+                        showAssistantDialog = true
+                    }
                 )
             }
 
@@ -387,7 +426,11 @@ fun SettingsScreen(
                     isAr = isAr,
                     focusRequester = rowReq(9),
                     stepModifier = rowStepMod(9),
-                    onClick = { showAboutDialog = true }
+                    onFocusChangedCallback = { focused -> if (focused) lastFocusedRowIndex = 9 },
+                    onClick = {
+                        lastFocusedRowIndex = 9
+                        showAboutDialog = true
+                    }
                 )
             }
         }
@@ -401,6 +444,7 @@ fun SettingsScreen(
                 showSubtitlesOption = true,
                 showSettingsOption = true,
                 isAr = isAr,
+                restoreFocusRequester = rowReq(6),
                 onConfirm = { options ->
                     showExportDialog = false
                     scope.launch {
@@ -430,6 +474,7 @@ fun SettingsScreen(
                 title = if (isAr) "اختر ملف النسخة الاحتياطية" else "Select Backup File",
                 onDismiss = { showBackupFilePickerDialog = false },
                 maxWidth = 540.dp,
+                restoreFocusRequester = rowReq(7),
                 scrollableBody = true,
                 footer = {
                     Row(
@@ -520,6 +565,7 @@ fun SettingsScreen(
                 showSubtitlesOption = info.hasSubtitleAccounts,
                 showSettingsOption = info.hasAppSettings,
                 isAr = isAr,
+                restoreFocusRequester = rowReq(7),
                 onConfirm = { options ->
                     showImportDialog = false
                     scope.launch {
@@ -545,6 +591,7 @@ fun SettingsScreen(
             TvPinDialog(
                 title = if (isAr) "تعيين رمز PIN جديد" else "Set New Parental PIN",
                 isAr = isAr,
+                restoreFocusRequester = rowReq(4),
                 onPinSubmitted = { newPin ->
                     scope.launch { settingsStore.updateParentalPin(newPin) }
                     showPinDialog = false
@@ -559,6 +606,7 @@ fun SettingsScreen(
                 settings = settings,
                 settingsStore = settingsStore,
                 isAr = isAr,
+                restoreFocusRequester = rowReq(5),
                 onDismiss = { showUnifiedAudioSubDialog = false }
             )
         }
@@ -566,6 +614,7 @@ fun SettingsScreen(
         if (showAssistantDialog) {
             AppServicesAssistantDialog(
                 isAr = isAr,
+                restoreFocusRequester = rowReq(8),
                 onDismiss = { showAssistantDialog = false }
             )
         }
@@ -575,6 +624,7 @@ fun SettingsScreen(
                 title = if (isAr) "حول التطبيق" else "About Application",
                 onDismiss = { showAboutDialog = false },
                 maxWidth = 500.dp,
+                restoreFocusRequester = rowReq(9),
                 scrollableBody = true,
                 footer = {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -652,6 +702,7 @@ private fun SelectiveBackupDialog(
     showSubtitlesOption: Boolean,
     showSettingsOption: Boolean,
     isAr: Boolean,
+    restoreFocusRequester: FocusRequester? = null,
     onConfirm: (BackupSelectionOptions) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -686,6 +737,7 @@ private fun SelectiveBackupDialog(
         title = title,
         onDismiss = onDismiss,
         maxWidth = 560.dp,
+        restoreFocusRequester = restoreFocusRequester,
         closeBtnRequester = closeDlgReq,
         scrollableBody = true,
         footer = {
@@ -947,6 +999,8 @@ private fun UnifiedAudioSubtitleSettingsDialog(
     val sizeMinusReq = remember { FocusRequester() }
     val sizePlusReq = remember { FocusRequester() }
     val sizeStepReqs = remember { listOf(sizeMinusReq, sizePlusReq) }
+    val alphaOptions = remember { listOf(0f to "0%", 0.45f to "45%", 0.65f to "65%", 0.9f to "90%") }
+    val alphaReqs = remember { List(alphaOptions.size) { FocusRequester() } }
 
     TvModalDialog(
         title = if (isAr) "إعدادات الصوت والترجمة والحسابات" else "Audio, Subtitles & Accounts",
@@ -965,6 +1019,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                         .onPreviewKeyEvent { ev ->
                             if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                             when {
+                                ev.key == Key.DirectionUp -> runCatching { alphaReqs[0].requestFocus() }.isSuccess
                                 (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight) -> runCatching { saveUnifiedReq.requestFocus() }.isSuccess
                                 else -> false
                             }
@@ -988,6 +1043,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                         .onPreviewKeyEvent { ev ->
                             if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                             when {
+                                ev.key == Key.DirectionUp -> runCatching { alphaReqs[0].requestFocus() }.isSuccess
                                 (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft) -> runCatching { cancelUnifiedReq.requestFocus() }.isSuccess
                                 else -> false
                             }
@@ -1020,6 +1076,7 @@ private fun UnifiedAudioSubtitleSettingsDialog(
                                         if (isAr) "تم حفظ جميع إعدادات الصوت والترجمة" else "All audio & subtitle settings saved",
                                         Toast.LENGTH_SHORT
                                     ).show()
+                                    restoreFocusRequester?.let { runCatching { it.requestFocus() } }
                                     onDismiss()
                                 }
                             }
@@ -1040,8 +1097,6 @@ private fun UnifiedAudioSubtitleSettingsDialog(
         val engineReqs = remember { List(engineOptions.size) { FocusRequester() } }
         val colorReqs = remember { List(colorChoices.size) { FocusRequester() } }
         val presetReqs = remember { List(sizePresets.size) { FocusRequester() } }
-        val alphaOptions = remember { listOf(0f to "0%", 0.45f to "45%", 0.65f to "65%", 0.9f to "90%") }
-        val alphaReqs = remember { List(alphaOptions.size) { FocusRequester() } }
 
         Text(
             text = if (isAr) "1. لغة الصوت المدمج المفضلة:" else "1. Preferred Embedded Audio Language:",
@@ -1555,6 +1610,7 @@ private fun ClassicSettingsRow(
     isAr: Boolean,
     focusRequester: FocusRequester? = null,
     stepModifier: Modifier = Modifier,
+    onFocusChangedCallback: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit
 ) {
     Row(
@@ -1565,6 +1621,7 @@ private fun ClassicSettingsRow(
                 focusRequester = focusRequester,
                 shape = RoundedCornerShape(12.dp),
                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surface,
+                onFocusChangedCallback = onFocusChangedCallback,
                 onClick = onClick
             )
             .padding(horizontal = 18.dp, vertical = 12.dp),

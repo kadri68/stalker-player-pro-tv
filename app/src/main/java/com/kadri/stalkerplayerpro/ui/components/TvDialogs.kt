@@ -108,7 +108,7 @@ fun TvModalDialog(
                     Spacer(modifier = Modifier.width(10.dp))
                     Box(
                         modifier = Modifier
-                            .onKeyEvent { ev ->
+                            .onPreviewKeyEvent { ev ->
                                 if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown) {
                                     runCatching { firstRequester.requestFocus() }.isSuccess
                                 } else {

@@ -498,10 +498,11 @@ private fun MainTvRoot(
                     fontWeight = FontWeight.Bold
                 )
 
-                // زر الخروج الأحمر يظهر فقط في نسخة الهاتف (!isTv) حتى لا يعيق الريموت على التلفاز
+                // زر الخروج الأحمر يظهر فقط في نسخة الهاتف (!isTv) عبر اللمس ولا يلتقط تركيز الريموت أبداً
                 if (!isTv) {
                     Box(
                         modifier = Modifier
+                            .focusProperties { canFocus = false }
                             .tvFocusItem(
                                 shape = RoundedCornerShape(8.dp),
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
