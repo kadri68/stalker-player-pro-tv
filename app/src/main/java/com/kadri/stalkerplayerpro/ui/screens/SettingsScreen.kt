@@ -27,15 +27,18 @@ import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -1671,17 +1674,17 @@ private fun AppServicesAssistantDialog(
     onDismiss: () -> Unit
 ) {
     val sections = if (isAr) listOf(
-        Triple("1. اللصق الذكي والمحلل الشامل (Smart Paste)", "انسخ أي نص يحتوي على روابط Stalker مع عناوين MAC متعددة، أو روابط Xtream Codes، أو روابط قوائم M3U، ثم اضغط (لصق ذكي). يقوم التطبيق باستخلاصها جميعاً، فحص الشغال منها تلقائياً، وحفظ الحسابات العاملة بضغطة واحدة.", Icons.Default.Search),
+        Triple("1. اللصق الذكي والمحلل الشامل (Smart Paste)", "انسخ أي نص يحتوي على روابط Stalker مع عناوين MAC متعددة، أو روابط Xtream Codes، أو روابط قوائم M3U، ثم اضغط (لصق ذكي). يقوم التطبيق باستخلاصها جميعاً، فحص الشغال منها تلقائياً، وحفظ الحسابات العاملة بضغطة واحدة.", Icons.Default.ContentPaste),
         Triple("2. الاستيراد والتصدير متعدد الصيغ (QR / M3U / TXT)", "• QR Code: مسح رمز QR بالكاميرا أو من صورة في المعرض، وتوليد رمز QR لأي بوابة لمشاركتها فوراً بين الهاتف والتلفاز.\n• ملفات M3U و TXT: استيراد قوائم القنوات أو ملفات الحسابات المجمعة مباشرة.\n• النسخ الاحتياطي المخصص: تصدير واستيراد انتقائي للبوابات والمفضلة والترجمات المحفوظة والإعدادات.", Icons.Default.Backup),
-        Triple("3. المشغل المزدوج الذكي واستئناف البث", "• يدعم محركين (ExoPlayer و LibVLC) مع التبديل التلقائي أو اليدوي لدعم كافة الصيغ والصوت المحيطي (AC3/DTS).\n• استئناف ذكي للبث: عند توقف الفيلم أو القناة فجأة، اضغط زر التشغيل وسيتم توليد رابط جلسة جديد واستئناف المشاهدة من نفس اللحظة.", Icons.Default.Restore),
+        Triple("3. المشغل المزدوج الذكي واستئناف البث", "• يدعم محركين (ExoPlayer و LibVLC) مع التبديل التلقائي أو اليدوي لدعم كافة الصيغ والصوت المحيطي (AC3/DTS).\n• استئناف ذكي للبث: عند توقف الفيلم أو القناة فجأة، اضغط زر التشغيل وسيتم توليد رابط جلسة جديد واستئناف المشاهدة من نفس اللحظة.", Icons.Default.PlayArrow),
         Triple("4. إدارة الترجمة المتقدمة والحفظ التلقائي", "• البحث المباشر في OpenSubtitles و Subdl مع فك الضغط التلقائي.\n• حفظ ترجمة كل فيلم: تُحفظ الترجمة المعتمدة لكل فيلم أو حلقة تلقائياً وتُستعاد عند العودة.\n• توحيد التنسيق وتنظيف رموز ASS، مع ضبط الحجم واللون والخلفية ومزامنة التوقيت (+ / -).", Icons.Default.Subtitles),
-        Triple("5. اختصارات الريموت واللمس ووضع PiP", "• الريموت: اكتب رقم القناة مباشرة، اضغط (0) للعودة للقناة السابقة، (CH+/CH-) للتبديل، و(OK) لإظهار الشريط.\n• اللمس: اسحب عمودياً يمين الشاشة للصوت ويسارها للسطوع.\n• وضع PiP: تصغير الفيديو في نافذة عائمة أثناء تصفح التطبيق.", Icons.Default.Palette)
+        Triple("5. اختصارات الريموت واللمس ووضع PiP", "• الريموت: اكتب رقم القناة مباشرة، اضغط (0) للعودة للقناة السابقة، (CH+/CH-) للتبديل، و(OK) لإظهار الشريط.\n• اللمس: اسحب عمودياً يمين الشاشة للصوت ويسارها للسطوع.\n• وضع PiP: تصغير الفيديو في نافذة عائمة أثناء تصفح التطبيق.", Icons.Default.Tv)
     ) else listOf(
-        Triple("1. Smart Paste & Multi-Parser", "Paste any raw text containing Stalker portals + multiple MACs, Xtream Codes links, or M3U URLs. The parser extracts, tests live connectivity, and saves only working portals automatically.", Icons.Default.Search),
+        Triple("1. Smart Paste & Multi-Parser", "Paste any raw text containing Stalker portals + multiple MACs, Xtream Codes links, or M3U URLs. The parser extracts, tests live connectivity, and saves only working portals automatically.", Icons.Default.ContentPaste),
         Triple("2. Multi-Format Import & Export (QR / M3U / TXT)", "• QR Code: Scan from camera or gallery, or generate a QR code for any portal to share between phone and TV.\n• M3U & TXT Files: Import playlists or bulk account text files directly.\n• Custom Backup: Selectively export and restore portals, favorites, saved subtitles, and settings.", Icons.Default.Backup),
-        Triple("3. Dual Engine & Smart Stream Recovery", "• Seamless switching between ExoPlayer and LibVLC for full codec and surround audio (AC3/DTS) support.\n• Smart Resume: Pressing Play after an unexpected stream drop fetches a fresh session URL and resumes from the exact position.", Icons.Default.Restore),
+        Triple("3. Dual Engine & Smart Stream Recovery", "• Seamless switching between ExoPlayer and LibVLC for full codec and surround audio (AC3/DTS) support.\n• Smart Resume: Pressing Play after an unexpected stream drop fetches a fresh session URL and resumes from the exact position.", Icons.Default.PlayArrow),
         Triple("4. Advanced Subtitles & Per-Movie Memory", "• Search OpenSubtitles & Subdl directly with automatic ZIP extraction.\n• Auto-Save per Movie: Approved subtitles are saved per movie/episode and restored automatically.\n• Unified clean styling with ASS tag stripping, preset sizes/colors, and +/- sync adjustment.", Icons.Default.Subtitles),
-        Triple("5. Remote Shortcuts, Touch Gestures & PiP", "• Remote: Direct channel number entry, (0) for previous channel, (CH+/CH-) to zap, and (OK) for controls.\n• Touch: Vertical swipe right for volume, left for brightness.\n• PiP Mode: Watch in a floating picture-in-picture window.", Icons.Default.Palette)
+        Triple("5. Remote Shortcuts, Touch Gestures & PiP", "• Remote: Direct channel number entry, (0) for previous channel, (CH+/CH-) to zap, and (OK) for controls.\n• Touch: Vertical swipe right for volume, left for brightness.\n• PiP Mode: Watch in a floating picture-in-picture window.", Icons.Default.Tv)
     )
     val closeAssistReq = remember { FocusRequester() }
     val gotItBtnReq = remember { FocusRequester() }

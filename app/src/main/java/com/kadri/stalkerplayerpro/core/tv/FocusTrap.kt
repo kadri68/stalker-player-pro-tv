@@ -129,51 +129,50 @@ fun Modifier.tvVerticalStepItem(
         Key.DirectionDown -> {
             if (index < totalCount - 1) {
                 val nextIdx = index + 1
+                val layoutInfo = listState.layoutInfo
+                val visibleItems = layoutInfo.visibleItemsInfo
+                val isNextVisible = visibleItems.any { it.index == nextIdx }
                 val nextReq = requesters[nextIdx]
-                if (nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
+
+                if (isNextVisible && nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
                     return@onPreviewKeyEvent true
                 }
+
                 scope.launch {
-                    val layoutInfo = listState.layoutInfo
-                    val visibleItems = layoutInfo.visibleItemsInfo
-                    val itemSize = visibleItems.lastOrNull()?.size ?: visibleItems.firstOrNull()?.size ?: 60
-                    val spacing = layoutInfo.mainAxisItemSpacing
-                    val delta = (itemSize + spacing).toFloat().coerceAtLeast(40f)
-                    runCatching { listState.scrollBy(delta) }
-                    withFrameNanos { }
-                    val req = requesters[nextIdx]
-                    val success = req != null && runCatching { req.requestFocus() }.isSuccess
-                    if (!success) {
+                    if (!isNextVisible) {
+                        runCatching { listState.animateScrollToItem(nextIdx) }
                         withFrameNanos { }
-                        runCatching { requesters[nextIdx]?.requestFocus() }
+                    }
+                    val req = requesters[nextIdx]
+                    if (req != null) {
+                        runCatching { req.requestFocus() }
                     }
                 }
                 true
             } else {
-                onExitBottom?.invoke()
-                true
+                onExitBottom?.invoke() ?: true
             }
         }
         Key.DirectionUp -> {
             if (index > 0) {
                 val prevIdx = index - 1
+                val layoutInfo = listState.layoutInfo
+                val visibleItems = layoutInfo.visibleItemsInfo
+                val isPrevVisible = visibleItems.any { it.index == prevIdx }
                 val prevReq = requesters[prevIdx]
-                if (prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
+
+                if (isPrevVisible && prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
                     return@onPreviewKeyEvent true
                 }
+
                 scope.launch {
-                    val layoutInfo = listState.layoutInfo
-                    val visibleItems = layoutInfo.visibleItemsInfo
-                    val itemSize = visibleItems.firstOrNull()?.size ?: 60
-                    val spacing = layoutInfo.mainAxisItemSpacing
-                    val delta = (itemSize + spacing).toFloat().coerceAtLeast(40f)
-                    runCatching { listState.scrollBy(-delta) }
-                    withFrameNanos { }
-                    val req = requesters[prevIdx]
-                    val success = req != null && runCatching { req.requestFocus() }.isSuccess
-                    if (!success) {
+                    if (!isPrevVisible) {
+                        runCatching { listState.animateScrollToItem(prevIdx) }
                         withFrameNanos { }
-                        runCatching { requesters[prevIdx]?.requestFocus() }
+                    }
+                    val req = requesters[prevIdx]
+                    if (req != null) {
+                        runCatching { req.requestFocus() }
                     }
                 }
                 true

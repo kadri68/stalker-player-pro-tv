@@ -96,6 +96,7 @@ import com.kadri.stalkerplayerpro.ui.screens.GlobalFavoritesScreen
 import com.kadri.stalkerplayerpro.ui.screens.LiveTvScreen
 import com.kadri.stalkerplayerpro.ui.screens.PortalsScreen
 import com.kadri.stalkerplayerpro.ui.screens.SettingsScreen
+import com.kadri.stalkerplayerpro.ui.screens.TvIntroScreen
 import com.kadri.stalkerplayerpro.ui.screens.VodScreen
 import kotlinx.coroutines.delay
 
@@ -147,26 +148,31 @@ class MainActivity : ComponentActivity() {
             val settings by app.settingsStore.settingsFlow.collectAsState(initial = TvUserSettings())
             val isAr = settings.language == "ar"
             val layoutDir = if (isAr) LayoutDirection.Rtl else LayoutDirection.Ltr
+            var showIntro by remember { mutableStateOf(true) }
 
             CompositionLocalProvider(LocalLayoutDirection provides layoutDir) {
                 StalkerTvTheme(
                     themeId = AppThemeId.fromId(settings.themeId),
                     fontScale = TvFontScale.fromId(settings.fontScaleId, isTvDefault = isTv)
                 ) {
-                    MainTvRoot(
-                        app = app,
-                        settings = settings,
-                        isAr = isAr,
-                        isTv = isTv,
-                        isInPipMode = isInPipModeState,
-                        forceStopSignal = forceStopPlaybackSignal,
-                        onPlayerActiveChanged = { active ->
-                            isPlayerActiveForPip = active
-                            updateAutoPipParams(active)
-                        },
-                        onEnterPip = { requestPipMode() },
-                        onFinishApp = { finishAndRemoveTask() }
-                    )
+                    if (showIntro) {
+                        TvIntroScreen(onFinished = { showIntro = false })
+                    } else {
+                        MainTvRoot(
+                            app = app,
+                            settings = settings,
+                            isAr = isAr,
+                            isTv = isTv,
+                            isInPipMode = isInPipModeState,
+                            forceStopSignal = forceStopPlaybackSignal,
+                            onPlayerActiveChanged = { active ->
+                                isPlayerActiveForPip = active
+                                updateAutoPipParams(active)
+                            },
+                            onEnterPip = { requestPipMode() },
+                            onFinishApp = { finishAndRemoveTask() }
+                        )
+                    }
                 }
             }
         }
