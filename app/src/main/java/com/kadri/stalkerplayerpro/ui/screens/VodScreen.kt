@@ -323,6 +323,20 @@ private fun VodContent(
     var focusedVodCatId by remember { mutableStateOf<String?>(null) }
     var hasRestoredInitialFocus by remember(portal.id, isSeriesMode) { mutableStateOf(false) }
 
+    LaunchedEffect(focusedVodCatId) {
+        val targetId = focusedVodCatId ?: return@LaunchedEffect
+        delay(220)
+        if (selectedCategoryId != targetId) {
+            selectedCategoryId = targetId
+        }
+    }
+    val targetItemIndex = remember(pagedItems, lastFocusedItemId) {
+        if (lastFocusedItemId != null) {
+            val found = pagedItems.indexOfFirst { it.id == lastFocusedItemId }
+            if (found >= 0) found else 0
+        } else 0
+    }
+
     val moveToGrid: () -> Boolean = {
         if (pagedItems.isNotEmpty()) {
             val targetIdx = targetItemIndex.coerceIn(0, pagedItems.size - 1)
@@ -342,20 +356,6 @@ private fun VodContent(
                 true
             }
         } else false
-    }
-
-    LaunchedEffect(focusedVodCatId) {
-        val targetId = focusedVodCatId ?: return@LaunchedEffect
-        delay(220)
-        if (selectedCategoryId != targetId) {
-            selectedCategoryId = targetId
-        }
-    }
-    val targetItemIndex = remember(pagedItems, lastFocusedItemId) {
-        if (lastFocusedItemId != null) {
-            val found = pagedItems.indexOfFirst { it.id == lastFocusedItemId }
-            if (found >= 0) found else 0
-        } else 0
     }
 
     LaunchedEffect(portal.id, isSeriesMode, isLoading) {
