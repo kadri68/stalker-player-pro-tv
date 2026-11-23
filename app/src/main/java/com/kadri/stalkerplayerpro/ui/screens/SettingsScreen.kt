@@ -791,7 +791,7 @@ fun SettingsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     LtrText(
-                        text = "stalker-player pro (IPTV STALKER)",
+                        text = "Stalker Player Pro (IPTV STALKER)",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold

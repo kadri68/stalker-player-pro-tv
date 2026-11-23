@@ -69,6 +69,7 @@ fun TvModalDialog(
     closeBtnRequester: FocusRequester = remember { FocusRequester() },
     scrollableBody: Boolean = false,
     showCloseButton: Boolean = true,
+    dismissOnBack: Boolean = true,
     footer: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.(firstFocusRequester: FocusRequester) -> Unit
 ) {
@@ -90,6 +91,7 @@ fun TvModalDialog(
     ) {
         TvFocusTrap(
             restoreFocusRequester = restoreFocusRequester,
+            dismissOnBack = dismissOnBack,
             onDismiss = safeDismiss
         ) { firstRequester ->
             androidx.compose.runtime.LaunchedEffect(Unit) {

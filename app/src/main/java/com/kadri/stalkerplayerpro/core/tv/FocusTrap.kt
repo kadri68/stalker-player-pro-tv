@@ -61,6 +61,7 @@ fun TvFocusTrap(
     modifier: Modifier = Modifier,
     initialFocusRequester: FocusRequester = remember { FocusRequester() },
     restoreFocusRequester: FocusRequester? = null,
+    dismissOnBack: Boolean = true,
     onDismiss: () -> Unit,
     content: @Composable (firstItemRequester: FocusRequester) -> Unit
 ) {
@@ -71,7 +72,7 @@ fun TvFocusTrap(
         }
     }
 
-    BackHandler {
+    BackHandler(enabled = dismissOnBack) {
         handleDismiss()
     }
 
@@ -85,7 +86,9 @@ fun TvFocusTrap(
             .focusGroup()
             .onPreviewKeyEvent { ev ->
                 if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Back || ev.key == Key.Escape)) {
-                    handleDismiss()
+                    if (dismissOnBack) {
+                        handleDismiss()
+                    }
                     true
                 } else false
             }
@@ -110,9 +113,10 @@ fun Modifier.blockFocusWhen(blocked: Boolean): Modifier =
     }
 
 /**
- * تحكم خطوي دقيق بالريموت (Up / Down) داخل القوائم العمودية (LazyColumn):
- * - يمنع تحرك القائمة بالكامل عند النزول، ويمنع القفز أو تخطي الأسطر عند الصعود.
- * - ينقل التركيز صفاً بصف (index - 1 / index + 1) ولا يسمح بالخروج للأعلى إلا من الصف الأول (index == 0).
+ * تحكم خطوي دقيق وسلس بالريموت (Up / Down) داخل القوائم العمودية (LazyColumn):
+ * - يمنع تحرك القائمة أو اهتزازها طالما أن العنصر التالي/السابق مرئي بالكامل على الشاشة.
+ * - يمرر القائمة بمقدار عنصر واحد فقط بدقة (ScrollBy) دون قفز للقمة أو تخطي عناصر.
+ * - يمنع التجمّد والقفز عند الصعود والنزول، ولا يسمح بالخروج للأعلى إلا من الصف الأول (index == 0).
  */
 fun Modifier.tvVerticalStepItem(
     index: Int,
@@ -128,26 +132,40 @@ fun Modifier.tvVerticalStepItem(
         Key.DirectionDown -> {
             if (index < totalCount - 1) {
                 val nextIdx = index + 1
-                val visibleItems = listState.layoutInfo.visibleItemsInfo
-                val isNextVisible = visibleItems.any { it.index == nextIdx }
+                val layoutInfo = listState.layoutInfo
+                val visibleItems = layoutInfo.visibleItemsInfo
+                val viewportStart = layoutInfo.viewportStartOffset
+                val viewportEnd = layoutInfo.viewportEndOffset
+
+                val nextItemInfo = visibleItems.firstOrNull { it.index == nextIdx }
+                val isNextFullyVisible = nextItemInfo != null &&
+                        nextItemInfo.offset >= viewportStart &&
+                        (nextItemInfo.offset + nextItemInfo.size) <= viewportEnd
+
                 val nextReq = requesters[nextIdx]
 
-                if (isNextVisible && nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
+                if (isNextFullyVisible && nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
                     return@onPreviewKeyEvent true
                 }
 
-                if (isNextVisible) {
-                    // العنصر التالي مرئي بالفعل داخل الشاشة، نترك النظام الطبيعي لـ Compose ينقل التركيز فوراً دون اعتراض
+                if (isNextFullyVisible) {
                     return@onPreviewKeyEvent false
                 }
 
+                // العنصر التالي مقتطع جزئياً أو خارج الإطار: نمرر بمقدار خطوة واحدة دقيقة فقط دون قفز
+                val avgItemSize = visibleItems.lastOrNull()?.size ?: 72
+                val delta = if (nextItemInfo != null) {
+                    ((nextItemInfo.offset + nextItemInfo.size) - viewportEnd + 8).toFloat()
+                } else {
+                    (avgItemSize + 8).toFloat()
+                }
+
                 scope.launch {
-                    runCatching { listState.animateScrollToItem(nextIdx) }
-                    delay(35)
+                    runCatching { listState.scrollBy(delta) }
+                    delay(20)
                     val req = requesters[nextIdx]
-                    val success = req != null && runCatching { req.requestFocus() }.isSuccess
-                    if (!success) {
-                        delay(25)
+                    if (req == null || !runCatching { req.requestFocus() }.isSuccess) {
+                        delay(20)
                         runCatching { requesters[nextIdx]?.requestFocus() }
                     }
                 }
@@ -160,26 +178,40 @@ fun Modifier.tvVerticalStepItem(
         Key.DirectionUp -> {
             if (index > 0) {
                 val prevIdx = index - 1
-                val visibleItems = listState.layoutInfo.visibleItemsInfo
-                val isPrevVisible = visibleItems.any { it.index == prevIdx }
+                val layoutInfo = listState.layoutInfo
+                val visibleItems = layoutInfo.visibleItemsInfo
+                val viewportStart = layoutInfo.viewportStartOffset
+                val viewportEnd = layoutInfo.viewportEndOffset
+
+                val prevItemInfo = visibleItems.firstOrNull { it.index == prevIdx }
+                val isPrevFullyVisible = prevItemInfo != null &&
+                        prevItemInfo.offset >= viewportStart &&
+                        (prevItemInfo.offset + prevItemInfo.size) <= viewportEnd
+
                 val prevReq = requesters[prevIdx]
 
-                if (isPrevVisible && prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
+                if (isPrevFullyVisible && prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
                     return@onPreviewKeyEvent true
                 }
 
-                if (isPrevVisible) {
-                    // العنصر السابق مرئي بالفعل، نترك النظام الطبيعي لـ Compose ينقل التركيز فوراً
+                if (isPrevFullyVisible) {
                     return@onPreviewKeyEvent false
                 }
 
+                // العنصر السابق مقتطع جزئياً أو خارج الإطار: نمرر خطوة واحدة للأعلى دون قفز
+                val avgItemSize = visibleItems.firstOrNull()?.size ?: 72
+                val delta = if (prevItemInfo != null) {
+                    (prevItemInfo.offset - viewportStart - 8).toFloat()
+                } else {
+                    -(avgItemSize + 8).toFloat()
+                }
+
                 scope.launch {
-                    runCatching { listState.animateScrollToItem(prevIdx) }
-                    delay(35)
+                    runCatching { listState.scrollBy(delta) }
+                    delay(20)
                     val req = requesters[prevIdx]
-                    val success = req != null && runCatching { req.requestFocus() }.isSuccess
-                    if (!success) {
-                        delay(25)
+                    if (req == null || !runCatching { req.requestFocus() }.isSuccess) {
+                        delay(20)
                         runCatching { requesters[prevIdx]?.requestFocus() }
                     }
                 }

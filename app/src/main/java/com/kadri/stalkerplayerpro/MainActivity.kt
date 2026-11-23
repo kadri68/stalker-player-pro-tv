@@ -410,12 +410,21 @@ private fun MainTvRoot(
                     horizontalAlignment = Alignment.Start,
                     modifier = Modifier.padding(end = 4.dp)
                 ) {
-                    LtrText(
-                        text = "IPTV STALKER",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LtrText(
+                            text = "IPTV STALKER",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        LtrText(
+                            text = "v${com.kadri.stalkerplayerpro.BuildConfig.VERSION_NAME}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
                     val remainingDaysText = remember(activePortal, isAr) {
                         val portal = activePortal
@@ -698,6 +707,11 @@ private fun MainTvRoot(
             var isExitFocused by remember { mutableStateOf(false) }
             var isCancelFocused by remember { mutableStateOf(false) }
 
+            // حصر زر الرجوع (Back) ومنعه من إغلاق النافذة أو الخروج من التطبيق
+            BackHandler(enabled = true) {
+                // منع الخروج على زر الرجوع داخل نافذة تأكيد الخروج؛ الخروج يتم فقط عبر زر نعم خروج
+            }
+
             LaunchedEffect(Unit) {
                 delay(60)
                 val ok = runCatching { exitBtnReq.requestFocus() }.isSuccess
@@ -706,16 +720,29 @@ private fun MainTvRoot(
                 }
             }
 
+            // ضمان بقاء الريموت محصوراً داخل النافذة دون أي تسرب
+            LaunchedEffect(isExitFocused, isCancelFocused) {
+                if (!isExitFocused && !isCancelFocused) {
+                    delay(40)
+                    if (!isExitFocused && !isCancelFocused) {
+                        runCatching { exitBtnReq.requestFocus() }
+                    }
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .onPreviewKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown && (ev.key == Key.Back || ev.key == Key.Escape)) {
+                            // حظر زر الرجوع تماماً داخل نافذة تأكيد الخروج
+                            true
+                        } else false
+                    }
                     .onKeyEvent { ev ->
                         if (ev.type == KeyEventType.KeyDown) {
                             when (ev.key) {
-                                Key.Back, Key.Escape -> {
-                                    showExitConfirmDialog = false
-                                    true
-                                }
+                                Key.Back, Key.Escape -> true
                                 Key.DirectionUp, Key.DirectionDown -> true // حصر التوجيه العمودي لمنع تسربه إلى خلفية الشاشة
                                 else -> false
                             }
@@ -727,6 +754,7 @@ private fun MainTvRoot(
                     onDismiss = { showExitConfirmDialog = false },
                     maxWidth = 440.dp,
                     showCloseButton = false,
+                    dismissOnBack = false,
                     restoreFocusRequester = tabRequesters[TvTab.PORTALS.index]
                 ) { _ ->
                     Text(

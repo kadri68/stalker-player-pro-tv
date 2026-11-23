@@ -818,12 +818,11 @@ private fun LiveTvContent(
                                 key = { idx, ch -> "${ch.uniqueKey}_$idx" }
                             ) { index, channel ->
                                 val isFav = channel.id in favIdSet
-                                val isTarget = index == targetChannelIndex
-                                val chReq = if (isTarget) {
-                                    channelRequesters[index] = channelsEntryRequester
-                                    channelsEntryRequester
-                                } else {
-                                    channelRequesters.getOrPut(index) { FocusRequester() }
+                                val chReq = channelRequesters.getOrPut(index) {
+                                    if (index == 0) channelsEntryRequester else FocusRequester()
+                                }
+                                if (index == 0 && !channelRequesters.containsKey(0)) {
+                                    channelRequesters[0] = channelsEntryRequester
                                 }
 
                                 ChannelRowCard(
@@ -1379,6 +1378,7 @@ private fun ChannelRowCard(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .heightIn(min = 52.dp)
             .onFocusChanged { if (it.isFocused) onFocused() }
             .tvFocusItem(
                 focusRequester = focusRequester,
@@ -1388,7 +1388,7 @@ private fun ChannelRowCard(
                 onMenuClick = onOpenOptions,
                 onClick = onClick
             )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         LtrText(
@@ -1396,33 +1396,43 @@ private fun ChannelRowCard(
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(44.dp)
+            modifier = Modifier.width(44.dp),
+            maxLines = 1
         )
 
-        if (channel.logoUrl.isNotBlank()) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(channel.logoUrl)
-                    .size(96, 96)
-                    .crossfade(false)
-                    .build(),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(6.dp))
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.Tv,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(30.dp)
-            )
+        // حاوية ثابتة الأبعاد للأيقونة أو الشعار لمنع اهتزاز أو قفز العناصر داخل القائمة
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(6.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (channel.logoUrl.isNotBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(channel.logoUrl)
+                        .size(96, 96)
+                        .crossfade(false)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Tv,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isFavorite) {
                     Text(text = "★ ", color = Color(0xFFFFD600), style = MaterialTheme.typography.bodyMedium)
