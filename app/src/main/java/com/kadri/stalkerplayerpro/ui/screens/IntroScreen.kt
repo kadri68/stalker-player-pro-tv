@@ -1,5 +1,6 @@
 package com.kadri.stalkerplayerpro.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -40,7 +41,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
@@ -56,9 +59,13 @@ fun TvIntroScreen(
     var isVisible by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
+    BackHandler {
+        onFinished()
+    }
+
     LaunchedEffect(Unit) {
         isVisible = true
-        delay(80)
+        delay(100)
         runCatching { focusRequester.requestFocus() }
         delay(2400)
         onFinished()
@@ -79,10 +86,15 @@ fun TvIntroScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { ev ->
-                if (ev.type == KeyEventType.KeyDown) {
-                    onFinished()
-                    true
-                } else false
+                when (ev.key) {
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.Spacebar, Key.Back -> {
+                        if (ev.type == KeyEventType.KeyDown) {
+                            onFinished()
+                        }
+                        true
+                    }
+                    else -> false
+                }
             },
         contentAlignment = Alignment.Center
     ) {
@@ -100,14 +112,14 @@ fun TvIntroScreen(
                 Box(
                     modifier = Modifier
                         .size(100.dp)
+                        .shadow(16.dp, CircleShape)
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(Color(0xFF00E5FF), Color(0xFF0091EA))
                             )
                         )
-                        .border(3.dp, Color(0xFF80D8FF), CircleShape)
-                        .shadow(20.dp, CircleShape),
+                        .border(3.dp, Color(0xFF80D8FF), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(

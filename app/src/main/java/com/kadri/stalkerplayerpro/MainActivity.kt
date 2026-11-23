@@ -155,9 +155,7 @@ class MainActivity : ComponentActivity() {
                     themeId = AppThemeId.fromId(settings.themeId),
                     fontScale = TvFontScale.fromId(settings.fontScaleId, isTvDefault = isTv)
                 ) {
-                    if (showIntro) {
-                        TvIntroScreen(onFinished = { showIntro = false })
-                    } else {
+                    Box(modifier = Modifier.fillMaxSize()) {
                         MainTvRoot(
                             app = app,
                             settings = settings,
@@ -165,6 +163,7 @@ class MainActivity : ComponentActivity() {
                             isTv = isTv,
                             isInPipMode = isInPipModeState,
                             forceStopSignal = forceStopPlaybackSignal,
+                            isIntroShowing = showIntro,
                             onPlayerActiveChanged = { active ->
                                 isPlayerActiveForPip = active
                                 updateAutoPipParams(active)
@@ -172,6 +171,10 @@ class MainActivity : ComponentActivity() {
                             onEnterPip = { requestPipMode() },
                             onFinishApp = { finishAndRemoveTask() }
                         )
+
+                        if (showIntro) {
+                            TvIntroScreen(onFinished = { showIntro = false })
+                        }
                     }
                 }
             }
@@ -294,6 +297,7 @@ private fun MainTvRoot(
     isTv: Boolean,
     isInPipMode: Boolean,
     forceStopSignal: Int,
+    isIntroShowing: Boolean = false,
     onPlayerActiveChanged: (Boolean) -> Unit,
     onEnterPip: () -> Unit,
     onFinishApp: () -> Unit
@@ -315,6 +319,13 @@ private fun MainTvRoot(
     val topBarScrollState = rememberScrollState()
     val contentFocusRequester = remember { FocusRequester() }
 
+    LaunchedEffect(isIntroShowing) {
+        if (!isIntroShowing) {
+            delay(50)
+            runCatching { tabRequesters[selectedTab].requestFocus() }
+        }
+    }
+
     LaunchedEffect(focusedTabIndex) {
         if (focusedTabIndex >= 0) {
             val maxIdx = (TvTab.entries.size - 1).coerceAtLeast(1)
@@ -334,23 +345,25 @@ private fun MainTvRoot(
     }
 
     LaunchedEffect(Unit) {
-        val existingPortals = dao.getAllPortals()
-        val freePortal = existingPortals.find { it.url == BUILTIN_FREE_AR_M3U_URL }
-        if (freePortal == null) {
-            val insertedId = dao.insertPortal(
-                PortalEntity(
-                    name = "AR-TV",
-                    protocol = "M3U",
-                    url = BUILTIN_FREE_AR_M3U_URL,
-                    statusText = "Active (Free AR)",
-                    isFavorite = true
+        runCatching {
+            val existingPortals = dao.getAllPortals()
+            val freePortal = existingPortals.find { it.url == BUILTIN_FREE_AR_M3U_URL }
+            if (freePortal == null) {
+                val insertedId = dao.insertPortal(
+                    PortalEntity(
+                        name = "AR-TV",
+                        protocol = "M3U",
+                        url = BUILTIN_FREE_AR_M3U_URL,
+                        statusText = "Active (Free AR)",
+                        isFavorite = true
+                    )
                 )
-            )
-            if (existingPortals.none { it.isActive }) {
-                dao.setActivePortal(insertedId)
+                if (existingPortals.none { it.isActive }) {
+                    dao.setActivePortal(insertedId)
+                }
+            } else if (existingPortals.none { it.isActive }) {
+                dao.setActivePortal(freePortal.id)
             }
-        } else if (existingPortals.none { it.isActive }) {
-            dao.setActivePortal(freePortal.id)
         }
 
         selectedTab = TvTab.LIVE.index
