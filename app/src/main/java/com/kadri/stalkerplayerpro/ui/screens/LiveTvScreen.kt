@@ -56,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -400,6 +401,7 @@ private fun LiveTvContent(
     }
 
     val channelListState = rememberLazyListState()
+    val catListState = rememberLazyListState()
     val channelsEntryRequester = remember { FocusRequester() }
     val catRequesters = remember(portal.id) { HashMap<Int, FocusRequester>() }
     val channelRequesters = remember(portal.id) { HashMap<Int, FocusRequester>() }
@@ -538,7 +540,6 @@ private fun LiveTvContent(
                 }
                 Spacer(modifier = Modifier.height(6.dp))
 
-                val catListState = rememberLazyListState()
                 LazyColumn(
                     state = catListState,
                     verticalArrangement = Arrangement.spacedBy(5.dp),

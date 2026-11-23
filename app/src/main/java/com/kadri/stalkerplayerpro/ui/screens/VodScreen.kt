@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -319,6 +320,7 @@ private fun VodContent(
     }
 
     val gridState = rememberLazyGridState()
+    val catListState = rememberLazyListState()
     val itemsEntryRequester = remember { FocusRequester() }
     val vodCatRequesters = remember(portal.id, isSeriesMode) { HashMap<Int, FocusRequester>() }
     val vodItemRequesters = remember(portal.id, isSeriesMode, selectedCategoryId) { mutableMapOf<Int, FocusRequester>() }
@@ -480,7 +482,6 @@ private fun VodContent(
                 }
                 Spacer(modifier = Modifier.height(6.dp))
 
-                val catListState = rememberLazyListState()
                 LazyColumn(
                     state = catListState,
                     verticalArrangement = Arrangement.spacedBy(5.dp),
