@@ -9,6 +9,17 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class BackupLocationOption(
+    val id: String,
+    val titleAr: String,
+    val titleEn: String,
+    val pathDesc: String,
+    val dir: File?
+)
 
 data class BackupSelectionOptions(
     val includePortals: Boolean = true,
@@ -35,6 +46,72 @@ data class BackupInspectionResult(
 object BackupManager {
 
     private const val DEFAULT_BACKUP_FILENAME = "stalker_player_pro_backup.json"
+
+    fun generateBackupFileName(date: Date = Date()): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd_HH-mm", Locale.US)
+        return "stalker_player_pro_backup_${sdf.format(date)}.json"
+    }
+
+    fun getExportDestinations(context: Context): List<BackupLocationOption> {
+        val list = mutableListOf<BackupLocationOption>()
+        // 1. مجلد التنزيلات العام
+        val pubDownloads = runCatching { Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS) }.getOrNull()
+        if (pubDownloads != null) {
+            list.add(
+                BackupLocationOption(
+                    id = "DOWNLOADS",
+                    titleAr = "مجلد التنزيلات (Downloads)",
+                    titleEn = "Downloads Folder",
+                    pathDesc = pubDownloads.absolutePath,
+                    dir = pubDownloads
+                )
+            )
+        }
+        // 2. مجلد المستندات العام
+        val pubDocs = runCatching { Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) }.getOrNull()
+        if (pubDocs != null) {
+            list.add(
+                BackupLocationOption(
+                    id = "DOCUMENTS",
+                    titleAr = "مجلد المستندات (Documents)",
+                    titleEn = "Documents Folder",
+                    pathDesc = pubDocs.absolutePath,
+                    dir = pubDocs
+                )
+            )
+        }
+        // 3. مجلد التطبيق المخصص على التخزين الخارجي
+        val appDownloads = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.getExternalFilesDir(null) ?: context.filesDir
+        list.add(
+            BackupLocationOption(
+                id = "APP_STORAGE",
+                titleAr = "مجلد التطبيق المخصص (App Storage)",
+                titleEn = "App External Storage",
+                pathDesc = appDownloads.absolutePath,
+                dir = appDownloads
+            )
+        )
+        // 4. متصفح ملفات النظام (System Picker)
+        list.add(
+            BackupLocationOption(
+                id = "SAF_PICKER",
+                titleAr = "متصفح ملفات النظام (تحديد مسار مخصص)",
+                titleEn = "System File Picker (SAF)",
+                pathDesc = "System Storage Access Framework",
+                dir = null
+            )
+        )
+        return list
+    }
+
+    suspend fun exportToFile(targetDir: File, fileName: String, json: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            if (!targetDir.exists()) targetDir.mkdirs()
+            val targetFile = File(targetDir, fileName)
+            targetFile.writeText(json, Charsets.UTF_8)
+            targetFile.absolutePath
+        }.getOrNull()
+    }
 
     fun portalBackupKey(url: String, mac: String, username: String): String =
         "${url.trim()}|${mac.trim().uppercase()}|${username.trim()}"
@@ -337,6 +414,7 @@ object BackupManager {
         options: BackupSelectionOptions = BackupSelectionOptions()
     ): String? = withContext(Dispatchers.IO) {
         val json = buildBackupJsonString(dao, settingsStore, options)
+        val fileName = generateBackupFileName()
         val candidateDirs = linkedSetOf<File>()
 
         // 1. مجلد التنزيلات العام
@@ -365,7 +443,7 @@ object BackupManager {
         for (dir in candidateDirs) {
             val success = runCatching {
                 if (!dir.exists()) dir.mkdirs()
-                val targetFile = File(dir, DEFAULT_BACKUP_FILENAME)
+                val targetFile = File(dir, fileName)
                 targetFile.writeText(json, Charsets.UTF_8)
                 targetFile.absolutePath
             }.getOrNull()

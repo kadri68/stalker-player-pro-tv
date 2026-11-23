@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Tv
@@ -77,6 +79,7 @@ import com.kadri.stalkerplayerpro.core.tv.tvHorizontalStepItem
 import com.kadri.stalkerplayerpro.core.tv.tvVerticalStepItem
 import com.kadri.stalkerplayerpro.data.local.AppDao
 import com.kadri.stalkerplayerpro.data.local.BackupInspectionResult
+import com.kadri.stalkerplayerpro.data.local.BackupLocationOption
 import com.kadri.stalkerplayerpro.data.local.BackupManager
 import com.kadri.stalkerplayerpro.data.local.BackupPortalPreview
 import com.kadri.stalkerplayerpro.data.local.BackupSelectionOptions
@@ -87,6 +90,9 @@ import com.kadri.stalkerplayerpro.ui.components.TvPinDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
@@ -109,6 +115,10 @@ fun SettingsScreen(
 
     var showExportDialog by remember { mutableStateOf(false) }
     var exportPortalsList by remember { mutableStateOf<List<BackupPortalPreview>>(emptyList()) }
+    var showExportLocationDialog by remember { mutableStateOf(false) }
+    var pendingExportFileName by remember { mutableStateOf("") }
+    var pendingExportOptions by remember { mutableStateOf(BackupSelectionOptions()) }
+    var exportDestinations by remember { mutableStateOf<List<BackupLocationOption>>(emptyList()) }
 
     var showImportDialog by remember { mutableStateOf(false) }
     var pendingImportRawJson by remember { mutableStateOf("") }
@@ -118,7 +128,7 @@ fun SettingsScreen(
     var isImportingBackup by remember { mutableStateOf(false) }
 
     val anyDialog = showPinDialog || showUnifiedAudioSubDialog || showAssistantDialog || showAboutDialog ||
-            showExportDialog || showImportDialog || showBackupFilePickerDialog
+            showExportDialog || showExportLocationDialog || showImportDialog || showBackupFilePickerDialog
 
     val pendingExportJson = remember { mutableStateOf("") }
 
@@ -363,42 +373,9 @@ fun SettingsScreen(
                         if (!isImportingBackup) {
                             scope.launch {
                                 isImportingBackup = true
-                                val files = BackupManager.findBackupFilesOnDevice(context)
-                                if (files.size == 1) {
-                                    val raw = withContext(Dispatchers.IO) {
-                                        runCatching { files.first().readText(Charsets.UTF_8) }.getOrDefault("")
-                                    }
-                                    val inspected = BackupManager.inspectBackupJsonAsync(raw)
-                                    isImportingBackup = false
-                                    if (inspected != null) {
-                                        pendingImportRawJson = raw
-                                        importInspection = inspected
-                                        showImportDialog = true
-                                    } else {
-                                        Toast.makeText(
-                                            context,
-                                            if (isAr) "ملف الباكب غير صالح أو تالف" else "Backup file is invalid or corrupted",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                } else if (files.size > 1) {
-                                    isImportingBackup = false
-                                    availableBackupFiles = files
-                                    showBackupFilePickerDialog = true
-                                } else {
-                                    isImportingBackup = false
-                                    val ok = runCatching {
-                                        com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true
-                                        importFileLauncher.launch(arrayOf("application/json", "*/*"))
-                                    }.isSuccess
-                                    if (!ok) {
-                                        Toast.makeText(
-                                            context,
-                                            if (isAr) "ضع ملف stalker_player_pro_backup.json في مجلد Download" else "Place stalker_player_pro_backup.json in Download folder",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }
+                                availableBackupFiles = BackupManager.findBackupFilesOnDevice(context)
+                                isImportingBackup = false
+                                showBackupFilePickerDialog = true
                             }
                         }
                     }
@@ -441,7 +418,7 @@ fun SettingsScreen(
         if (showExportDialog) {
             SelectiveBackupDialog(
                 title = if (isAr) "تصدير نسخة احتياطية مخصصة (مستثنى AR-TV)" else "Export Custom Backup (AR-TV Excluded)",
-                confirmLabel = if (isAr) "تصدير المحدد" else "Export Selected",
+                confirmLabel = if (isAr) "التالي: اختيار مكان الحفظ" else "Next: Choose Location",
                 portals = exportPortalsList,
                 showFavoritesOption = true,
                 showSubtitlesOption = true,
@@ -450,33 +427,139 @@ fun SettingsScreen(
                 restoreFocusRequester = rowReq(6),
                 onConfirm = { options ->
                     showExportDialog = false
-                    scope.launch {
-                        if (isTv) {
-                            val savedPath = BackupManager.exportToDefaultFolder(context, dao, settingsStore, options)
-                            Toast.makeText(
-                                context,
-                                if (savedPath != null) {
-                                    if (isAr) "تم تصدير النسخة الاحتياطية بنجاح إلى:\n$savedPath" else "Backup exported successfully to:\n$savedPath"
-                                } else {
-                                    if (isAr) "فشل تصدير النسخة الاحتياطية! تحقق من التخزين." else "Failed to export backup! Check storage."
-                                },
-                                Toast.LENGTH_LONG
-                            ).show()
-                        } else {
-                            pendingExportJson.value = BackupManager.buildBackupJsonString(dao, settingsStore, options)
-                            com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true; exportFileLauncher.launch("stalker_player_pro_backup.json")
-                        }
-                    }
+                    pendingExportOptions = options
+                    pendingExportFileName = BackupManager.generateBackupFileName()
+                    exportDestinations = BackupManager.getExportDestinations(context)
+                    showExportLocationDialog = true
                 },
                 onDismiss = { showExportDialog = false }
             )
+        }
+
+        if (showExportLocationDialog) {
+            TvModalDialog(
+                title = if (isAr) "تحديد مسار حفظ النسخة الاحتياطية" else "Choose Backup Save Location",
+                onDismiss = { showExportLocationDialog = false },
+                maxWidth = 580.dp,
+                restoreFocusRequester = rowReq(6),
+                scrollableBody = true,
+                footer = {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .tvFocusItem(
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    onClick = { showExportLocationDialog = false }
+                                )
+                                .padding(horizontal = 20.dp, vertical = 9.dp)
+                        ) {
+                            Text(if (isAr) "إلغاء" else "Cancel", color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            ) { firstReq ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = if (isAr) "اسم ملف النسخة مع التاريخ والوقت:" else "File Name with Timestamp:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LtrText(
+                            text = pendingExportFileName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = if (isAr) "اختر مجلد الحفظ المفضل لديك:" else "Select Save Location:",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+
+                    exportDestinations.forEachIndexed { dIdx, dest ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .tvFocusItem(
+                                    focusRequester = if (dIdx == 0) firstReq else null,
+                                    shape = RoundedCornerShape(10.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                    focusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                    focusedBorderColor = Color.White,
+                                    onClick = {
+                                        showExportLocationDialog = false
+                                        scope.launch {
+                                            val json = BackupManager.buildBackupJsonString(dao, settingsStore, pendingExportOptions)
+                                            if (dest.dir != null) {
+                                                val savedPath = BackupManager.exportToFile(dest.dir, pendingExportFileName, json)
+                                                Toast.makeText(
+                                                    context,
+                                                    if (savedPath != null) {
+                                                        if (isAr) "تم تصدير النسخة الاحتياطية بنجاح إلى:\n$savedPath" else "Backup exported successfully to:\n$savedPath"
+                                                    } else {
+                                                        if (isAr) "فشل الحفظ في هذا المسار! تحقق من أذونات التخزين." else "Failed to save to folder! Check permissions."
+                                                    },
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            } else {
+                                                pendingExportJson.value = json
+                                                com.kadri.stalkerplayerpro.MainActivity.isLaunchingExternalPicker = true
+                                                exportFileLauncher.launch(pendingExportFileName)
+                                            }
+                                        }
+                                    }
+                                )
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (dest.dir == null) Icons.Default.FolderOpen else Icons.Default.Save,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isAr) dest.titleAr else dest.titleEn,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                LtrText(
+                                    text = dest.pathDesc,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (showBackupFilePickerDialog) {
             TvModalDialog(
                 title = if (isAr) "اختر ملف النسخة الاحتياطية" else "Select Backup File",
                 onDismiss = { showBackupFilePickerDialog = false },
-                maxWidth = 540.dp,
+                maxWidth = 580.dp,
                 restoreFocusRequester = rowReq(7),
                 scrollableBody = true,
                 footer = {
@@ -488,7 +571,9 @@ fun SettingsScreen(
                             modifier = Modifier
                                 .tvFocusItem(
                                     shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.25f),
+                                    focusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                    focusedBorderColor = Color.White,
                                     onClick = {
                                         showBackupFilePickerDialog = false
                                         val ok = runCatching {
@@ -500,56 +585,101 @@ fun SettingsScreen(
                                         }
                                     }
                                 )
-                                .padding(horizontal = 14.dp, vertical = 9.dp)
+                                .padding(horizontal = 16.dp, vertical = 9.dp)
                         ) {
-                            Text(if (isAr) "تصفح الجهاز" else "Browse Device", color = MaterialTheme.colorScheme.onSurface)
+                            Text(
+                                text = if (isAr) "تصفح الجهاز (مستكشف الملفات)" else "Browse Device / Storage",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                         Box(
                             modifier = Modifier
                                 .tvFocusItem(
                                     shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                     onClick = { showBackupFilePickerDialog = false }
                                 )
                                 .padding(horizontal = 18.dp, vertical = 9.dp)
                         ) {
-                            Text(if (isAr) "إغلاق" else "Close", color = MaterialTheme.colorScheme.onPrimary)
+                            Text(if (isAr) "إغلاق" else "Close", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
             ) { firstReq ->
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    availableBackupFiles.forEachIndexed { fIdx, bFile ->
-                        Row(
+                    if (availableBackupFiles.isEmpty()) {
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .tvFocusItem(
-                                    focusRequester = if (fIdx == 0) firstReq else null,
-                                    shape = RoundedCornerShape(10.dp),
-                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    onClick = {
-                                        showBackupFilePickerDialog = false
-                                        scope.launch {
-                                            val raw = withContext(Dispatchers.IO) {
-                                                runCatching { bFile.readText(Charsets.UTF_8) }.getOrDefault("")
-                                            }
-                                            val inspected = BackupManager.inspectBackupJsonAsync(raw)
-                                            if (inspected != null) {
-                                                pendingImportRawJson = raw
-                                                importInspection = inspected
-                                                showImportDialog = true
-                                            } else {
-                                                Toast.makeText(context, if (isAr) "ملف باكب غير صالح" else "Invalid backup file", Toast.LENGTH_SHORT).show()
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = if (isAr) "لم يتم العثور على ملفات نسخ احتياطي تلقائياً" else "No backup files found automatically",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = if (isAr) "اضغط على «تصفح الجهاز» أدناه لاختيار ملف من الذاكرة أو USB" else "Use 'Browse Device' below to pick a file from storage or USB",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    } else {
+                        availableBackupFiles.forEachIndexed { fIdx, bFile ->
+                            val sdf = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US) }
+                            val dateStr = remember(bFile) { sdf.format(Date(bFile.lastModified())) }
+                            val sizeKb = remember(bFile) { (bFile.length() / 1024L).coerceAtLeast(1L) }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .tvFocusItem(
+                                        focusRequester = if (fIdx == 0) firstReq else null,
+                                        shape = RoundedCornerShape(10.dp),
+                                        unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        focusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                        focusedBorderColor = Color.White,
+                                        onClick = {
+                                            showBackupFilePickerDialog = false
+                                            scope.launch {
+                                                val raw = withContext(Dispatchers.IO) {
+                                                    runCatching { bFile.readText(Charsets.UTF_8) }.getOrDefault("")
+                                                }
+                                                val inspected = BackupManager.inspectBackupJsonAsync(raw)
+                                                if (inspected != null) {
+                                                    pendingImportRawJson = raw
+                                                    importInspection = inspected
+                                                    showImportDialog = true
+                                                } else {
+                                                    Toast.makeText(context, if (isAr) "ملف باكب غير صالح" else "Invalid backup file", Toast.LENGTH_SHORT).show()
+                                                }
                                             }
                                         }
-                                    }
+                                    )
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Backup,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(24.dp)
                                 )
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(text = bFile.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                Text(text = bFile.parentFile?.name.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = bFile.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Text(text = "$sizeKb KB", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        Text(text = dateStr, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(text = bFile.parentFile?.name.orEmpty(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                                    }
+                                }
                             }
                         }
                     }

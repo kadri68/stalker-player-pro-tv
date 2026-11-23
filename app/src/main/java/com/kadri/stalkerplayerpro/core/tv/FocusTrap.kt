@@ -132,19 +132,18 @@ fun Modifier.tvVerticalStepItem(
                 val isNextVisible = visibleItems.any { it.index == nextIdx }
                 val nextReq = requesters[nextIdx]
 
-                if (isNextVisible && nextReq != null) {
-                    if (runCatching { nextReq.requestFocus() }.isSuccess) {
-                        return@onPreviewKeyEvent true
-                    }
+                if (isNextVisible && nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
+                    return@onPreviewKeyEvent true
+                }
+
+                if (isNextVisible) {
+                    // العنصر التالي مرئي بالفعل داخل الشاشة، نترك النظام الطبيعي لـ Compose ينقل التركيز فوراً دون اعتراض
+                    return@onPreviewKeyEvent false
                 }
 
                 scope.launch {
-                    if (!isNextVisible) {
-                        runCatching { listState.animateScrollToItem(nextIdx) }
-                        delay(35)
-                    } else {
-                        delay(15)
-                    }
+                    runCatching { listState.animateScrollToItem(nextIdx) }
+                    delay(35)
                     val req = requesters[nextIdx]
                     val success = req != null && runCatching { req.requestFocus() }.isSuccess
                     if (!success) {
@@ -165,19 +164,18 @@ fun Modifier.tvVerticalStepItem(
                 val isPrevVisible = visibleItems.any { it.index == prevIdx }
                 val prevReq = requesters[prevIdx]
 
-                if (isPrevVisible && prevReq != null) {
-                    if (runCatching { prevReq.requestFocus() }.isSuccess) {
-                        return@onPreviewKeyEvent true
-                    }
+                if (isPrevVisible && prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
+                    return@onPreviewKeyEvent true
+                }
+
+                if (isPrevVisible) {
+                    // العنصر السابق مرئي بالفعل، نترك النظام الطبيعي لـ Compose ينقل التركيز فوراً
+                    return@onPreviewKeyEvent false
                 }
 
                 scope.launch {
-                    if (!isPrevVisible) {
-                        runCatching { listState.animateScrollToItem(prevIdx) }
-                        delay(35)
-                    } else {
-                        delay(15)
-                    }
+                    runCatching { listState.animateScrollToItem(prevIdx) }
+                    delay(35)
                     val req = requesters[prevIdx]
                     val success = req != null && runCatching { req.requestFocus() }.isSuccess
                     if (!success) {

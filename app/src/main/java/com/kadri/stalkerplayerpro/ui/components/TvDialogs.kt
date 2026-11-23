@@ -68,6 +68,7 @@ fun TvModalDialog(
     restoreFocusRequester: FocusRequester? = null,
     closeBtnRequester: FocusRequester = remember { FocusRequester() },
     scrollableBody: Boolean = false,
+    showCloseButton: Boolean = true,
     footer: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.(firstFocusRequester: FocusRequester) -> Unit
 ) {
@@ -94,7 +95,7 @@ fun TvModalDialog(
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 kotlinx.coroutines.delay(80)
                 val success = runCatching { firstRequester.requestFocus() }.isSuccess
-                if (!success) {
+                if (!success && showCloseButton) {
                     runCatching { closeBtnRequester.requestFocus() }
                 }
             }
@@ -119,39 +120,41 @@ fun TvModalDialog(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Box(
-                        modifier = Modifier
-                            .onPreviewKeyEvent { ev ->
-                                if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown) {
-                                    runCatching { firstRequester.requestFocus() }.isSuccess
-                                } else {
-                                    false
+                    if (showCloseButton) {
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionDown) {
+                                        runCatching { firstRequester.requestFocus() }.isSuccess
+                                    } else {
+                                        false
+                                    }
                                 }
+                                .tvFocusItem(
+                                    focusRequester = closeBtnRequester,
+                                    shape = RoundedCornerShape(8.dp),
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.30f),
+                                    onClick = safeDismiss
+                                )
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                LtrText(
+                                    text = "X",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
-                            .tvFocusItem(
-                                focusRequester = closeBtnRequester,
-                                shape = RoundedCornerShape(8.dp),
-                                unfocusedBackgroundColor = MaterialTheme.colorScheme.error.copy(alpha = 0.30f),
-                                onClick = safeDismiss
-                            )
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            LtrText(
-                                text = "X",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
                     }
                 }

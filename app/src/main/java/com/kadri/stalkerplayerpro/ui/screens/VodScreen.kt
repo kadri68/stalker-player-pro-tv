@@ -585,7 +585,7 @@ private fun VodContent(
                     .padding(10.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusGroup(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -616,8 +616,19 @@ private fun VodContent(
                                 }
                             )
                     )
+                    var isVodHistoryFocused by remember { mutableStateOf(false) }
                     Row(
                         modifier = Modifier
+                            .onFocusChanged { isVodHistoryFocused = it.isFocused }
+                            .onPreviewKeyEvent { ev ->
+                                if (ev.type == KeyEventType.KeyDown && (
+                                    ev.key == Key.DirectionCenter || ev.key == Key.Enter ||
+                                    ev.key == Key.NumPadEnter || ev.key == Key.ButtonA
+                                )) {
+                                    showWatchHistoryDialog = true
+                                    true
+                                } else false
+                            }
                             .tvHorizontalStepItem(
                                 index = 1,
                                 totalCount = 3,
@@ -631,7 +642,9 @@ private fun VodContent(
                             .tvFocusItem(
                                 focusRequester = vodTopBarRequesters[1],
                                 shape = RoundedCornerShape(10.dp),
+                                focusedBackgroundColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                focusedBorderColor = Color.White,
                                 onClick = { showWatchHistoryDialog = true }
                             )
                             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -640,14 +653,14 @@ private fun VodContent(
                         Icon(
                             imageVector = Icons.Default.History,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary,
+                            tint = if (isVodHistoryFocused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = if (isAr) "سجل المشاهدة (${watchHistory.size})" else "History (${watchHistory.size})",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = if (isVodHistoryFocused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )

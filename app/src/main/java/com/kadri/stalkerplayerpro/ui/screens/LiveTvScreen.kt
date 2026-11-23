@@ -421,7 +421,6 @@ private fun LiveTvContent(
     }
 
     LaunchedEffect(selectedCategoryId) {
-        channelRequesters.clear()
         runCatching { channelListState.scrollToItem(0) }
     }
 
@@ -661,7 +660,7 @@ private fun LiveTvContent(
                     .padding(10.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().focusGroup(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -690,8 +689,19 @@ private fun LiveTvContent(
                                 }
                             )
                     )
+                    var isLiveHistoryFocused by remember { mutableStateOf(false) }
                     Box(
                         modifier = Modifier
+                            .onFocusChanged { isLiveHistoryFocused = it.isFocused }
+                            .onPreviewKeyEvent { ev ->
+                                if (ev.type == KeyEventType.KeyDown && (
+                                    ev.key == Key.DirectionCenter || ev.key == Key.Enter ||
+                                    ev.key == Key.NumPadEnter || ev.key == Key.ButtonA
+                                )) {
+                                    showLiveWatchHistoryDialog = true
+                                    true
+                                } else false
+                            }
                             .tvHorizontalStepItem(
                                 index = 1,
                                 totalCount = 3,
@@ -707,7 +717,9 @@ private fun LiveTvContent(
                             .tvFocusItem(
                                 focusRequester = liveTopBarRequesters[1],
                                 shape = RoundedCornerShape(10.dp),
+                                focusedBackgroundColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                focusedBorderColor = Color.White,
                                 onClick = { showLiveWatchHistoryDialog = true }
                             )
                             .padding(horizontal = 12.dp, vertical = 10.dp)
@@ -716,14 +728,14 @@ private fun LiveTvContent(
                             Icon(
                                 imageVector = Icons.Default.History,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
+                                tint = if (isLiveHistoryFocused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = if (isAr) "سجل المشاهدة (${liveWatchHistory.size})" else "History (${liveWatchHistory.size})",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = if (isLiveHistoryFocused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
                             )
@@ -806,23 +818,25 @@ private fun LiveTvContent(
                                 key = { idx, ch -> "${ch.uniqueKey}_$idx" }
                             ) { index, channel ->
                                 val isFav = channel.id in favIdSet
-                                val chReq = channelRequesters.getOrPut(index) { FocusRequester() }
                                 val isTarget = index == targetChannelIndex
-                                Box(
-                                    modifier = Modifier
-                                        .then(if (isTarget) Modifier.focusRequester(channelsEntryRequester) else Modifier)
-                                        .tvVerticalStepItem(
-                                            index = index,
-                                            totalCount = filteredChannels.size,
-                                            listState = channelListState,
-                                            requesters = channelRequesters,
-                                            scope = scope,
-                                            onExitTop = { runCatching { liveTopBarRequesters[0].requestFocus() }.isSuccess }
-                                        )
-                                ) {
+                                val chReq = if (isTarget) {
+                                    channelRequesters[index] = channelsEntryRequester
+                                    channelsEntryRequester
+                                } else {
+                                    channelRequesters.getOrPut(index) { FocusRequester() }
+                                }
+
                                 ChannelRowCard(
                                     channel = channel,
                                     isFavorite = isFav,
+                                    modifier = Modifier.tvVerticalStepItem(
+                                        index = index,
+                                        totalCount = filteredChannels.size,
+                                        listState = channelListState,
+                                        requesters = channelRequesters,
+                                        scope = scope,
+                                        onExitTop = { runCatching { liveTopBarRequesters[0].requestFocus() }.isSuccess }
+                                    ),
                                     focusRequester = chReq,
                                     onFocused = { onChannelFocused(channel.id) },
                                     onClick = {
@@ -843,7 +857,6 @@ private fun LiveTvContent(
                                     },
                                     onOpenOptions = { channelForMenu = channel }
                                 )
-                                }
                             }
                         }
                     }
@@ -1356,6 +1369,7 @@ private fun LiveTvContent(
 private fun ChannelRowCard(
     channel: ChannelItem,
     isFavorite: Boolean,
+    modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     onClick: () -> Unit,
@@ -1363,7 +1377,7 @@ private fun ChannelRowCard(
 ) {
     val context = LocalContext.current
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { if (it.isFocused) onFocused() }
             .tvFocusItem(

@@ -693,53 +693,129 @@ private fun MainTvRoot(
         }
 
         if (showExitConfirmDialog) {
-            TvModalDialog(
-                title = if (isAr) "تأكيد الخروج" else "Confirm Exit",
-                onDismiss = { showExitConfirmDialog = false },
-                maxWidth = 420.dp,
-                restoreFocusRequester = tabRequesters[TvTab.PORTALS.index]
-            ) { firstRequester ->
-                Text(
-                    text = if (isAr) "هل تريد الخروج من تطبيق stalker-player pro؟" else "Do you want to exit stalker-player pro?",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(18.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .tvFocusItem(
-                                focusRequester = firstRequester,
-                                shape = RoundedCornerShape(10.dp),
-                                unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                                onClick = { showExitConfirmDialog = false }
-                            )
-                            .padding(horizontal = 20.dp, vertical = 10.dp)
-                    ) {
-                        Text(
-                            text = if (isAr) "إلغاء" else "Cancel",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+            val cancelBtnReq = remember { FocusRequester() }
+            val exitBtnReq = remember { FocusRequester() }
+            var isExitFocused by remember { mutableStateOf(false) }
+            var isCancelFocused by remember { mutableStateOf(false) }
 
-                    Box(
+            LaunchedEffect(Unit) {
+                delay(60)
+                val ok = runCatching { exitBtnReq.requestFocus() }.isSuccess
+                if (!ok) {
+                    runCatching { cancelBtnReq.requestFocus() }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onKeyEvent { ev ->
+                        if (ev.type == KeyEventType.KeyDown) {
+                            when (ev.key) {
+                                Key.Back, Key.Escape -> {
+                                    showExitConfirmDialog = false
+                                    true
+                                }
+                                Key.DirectionUp, Key.DirectionDown -> true // حصر التوجيه العمودي لمنع تسربه إلى خلفية الشاشة
+                                else -> false
+                            }
+                        } else false
+                    }
+            ) {
+                TvModalDialog(
+                    title = if (isAr) "تأكيد الخروج" else "Confirm Exit",
+                    onDismiss = { showExitConfirmDialog = false },
+                    maxWidth = 440.dp,
+                    showCloseButton = false,
+                    restoreFocusRequester = tabRequesters[TvTab.PORTALS.index]
+                ) { _ ->
+                    Text(
+                        text = if (isAr) "هل تريد الخروج من تطبيق stalker-player pro؟" else "Do you want to exit stalker-player pro?",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(
                         modifier = Modifier
-                            .tvFocusItem(
-                                shape = RoundedCornerShape(10.dp),
-                                unfocusedBackgroundColor = MaterialTheme.colorScheme.error,
-                                onClick = onFinishApp
-                            )
-                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (isAr) "نعم، خروج" else "Yes, Exit",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onError
-                        )
+                        // زر الخروج نعم (Yes, Exit)
+                        Box(
+                            modifier = Modifier
+                                .onFocusChanged { isExitFocused = it.isFocused }
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown) {
+                                        when (ev.key) {
+                                            Key.DirectionLeft, Key.DirectionRight -> {
+                                                runCatching { cancelBtnReq.requestFocus() }.isSuccess
+                                            }
+                                            Key.DirectionUp, Key.DirectionDown -> true
+                                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.ButtonA -> {
+                                                onFinishApp()
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
+                                }
+                                .tvFocusItem(
+                                    focusRequester = exitBtnReq,
+                                    shape = RoundedCornerShape(10.dp),
+                                    focusedBackgroundColor = Color(0xFFFF1744),
+                                    unfocusedBackgroundColor = Color(0xFFD32F2F),
+                                    focusedBorderColor = Color.White,
+                                    onClick = onFinishApp
+                                )
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isAr) "نعم، خروج" else "Yes, Exit",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        // زر الإلغاء (Cancel)
+                        Box(
+                            modifier = Modifier
+                                .onFocusChanged { isCancelFocused = it.isFocused }
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type == KeyEventType.KeyDown) {
+                                        when (ev.key) {
+                                            Key.DirectionLeft, Key.DirectionRight -> {
+                                                runCatching { exitBtnReq.requestFocus() }.isSuccess
+                                            }
+                                            Key.DirectionUp, Key.DirectionDown -> true
+                                            Key.DirectionCenter, Key.Enter, Key.NumPadEnter, Key.ButtonA -> {
+                                                showExitConfirmDialog = false
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    } else false
+                                }
+                                .tvFocusItem(
+                                    focusRequester = cancelBtnReq,
+                                    shape = RoundedCornerShape(10.dp),
+                                    focusedBackgroundColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    focusedBorderColor = Color.White,
+                                    onClick = { showExitConfirmDialog = false }
+                                )
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (isAr) "إلغاء" else "Cancel",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isCancelFocused) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
             }
