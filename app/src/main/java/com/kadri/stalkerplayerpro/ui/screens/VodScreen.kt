@@ -102,6 +102,8 @@ fun VodScreen(
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
     onNavigateToTopBar: () -> Boolean = { false },
+    initialSelectedCategoryId: String = "ALL",
+    onCategorySelected: (String) -> Unit = {},
     lastFocusedItemId: String? = null,
     onItemFocused: (String) -> Unit = {},
     onGoToPortals: () -> Unit = {},
@@ -124,6 +126,8 @@ fun VodScreen(
             isAr = isAr,
             initialContentFocusRequester = initialContentFocusRequester,
             onNavigateToTopBar = onNavigateToTopBar,
+            initialSelectedCategoryId = initialSelectedCategoryId,
+            onCategorySelected = onCategorySelected,
             lastFocusedItemId = lastFocusedItemId,
             onItemFocused = onItemFocused,
             onPlayVod = onPlayVod
@@ -176,6 +180,8 @@ private fun VodContent(
     isAr: Boolean,
     initialContentFocusRequester: FocusRequester = remember { FocusRequester() },
     onNavigateToTopBar: () -> Boolean = { false },
+    initialSelectedCategoryId: String = "ALL",
+    onCategorySelected: (String) -> Unit = {},
     lastFocusedItemId: String? = null,
     onItemFocused: (String) -> Unit = {},
     onPlayVod: (PlaybackRequest) -> Unit
@@ -187,7 +193,7 @@ private fun VodContent(
     var allLoadedItems by remember(portal.id, isSeriesMode) { mutableStateOf<List<VodItem>>(emptyList()) }
     var visibleCount by remember(portal.id, isSeriesMode) { mutableIntStateOf(30) }
     var currentStalkerPage by remember(portal.id, isSeriesMode) { mutableIntStateOf(1) }
-    var selectedCategoryId by remember(portal.id, isSeriesMode) { mutableStateOf("ALL") }
+    var selectedCategoryId by remember(portal.id, isSeriesMode) { mutableStateOf(initialSelectedCategoryId) }
 
     var isLoading by remember(portal.id, isSeriesMode) { mutableStateOf(true) }
     var hasError by remember(portal.id, isSeriesMode) { mutableStateOf(false) }
@@ -315,6 +321,7 @@ private fun VodContent(
     val gridState = rememberLazyGridState()
     val itemsEntryRequester = remember { FocusRequester() }
     val vodCatRequesters = remember(portal.id, isSeriesMode) { HashMap<Int, FocusRequester>() }
+    val vodItemRequesters = remember(portal.id, isSeriesMode, selectedCategoryId) { mutableMapOf<Int, FocusRequester>() }
     val vodManageCatRequester = remember { FocusRequester() }
     val vodTopBarRequesters = remember { List(3) { FocusRequester() } }
     var showWatchHistoryDialog by remember { mutableStateOf(false) }
@@ -326,6 +333,7 @@ private fun VodContent(
         delay(220)
         if (selectedCategoryId != targetId) {
             selectedCategoryId = targetId
+            onCategorySelected(targetId)
         }
     }
     val targetItemIndex = remember(pagedItems, lastFocusedItemId) {
@@ -335,16 +343,39 @@ private fun VodContent(
         } else 0
     }
 
+    fun focusGridItem(targetIdx: Int = targetItemIndex) {
+        if (pagedItems.isEmpty()) return
+        val safeIdx = targetIdx.coerceIn(0, pagedItems.size - 1)
+        val req = vodItemRequesters[safeIdx]
+        if (req != null && runCatching { req.requestFocus() }.isSuccess) {
+            return
+        }
+        scope.launch {
+            runCatching { gridState.scrollToItem(safeIdx) }
+            delay(40)
+            val r = vodItemRequesters[safeIdx] ?: itemsEntryRequester
+            if (runCatching { r.requestFocus() }.isSuccess) return@launch
+            delay(40)
+            runCatching { (vodItemRequesters[0] ?: itemsEntryRequester).requestFocus() }
+        }
+    }
+
     LaunchedEffect(portal.id, isSeriesMode, isLoading) {
-        if (!isLoading && !hasRestoredInitialFocus && selectedSeriesForEpisodes == null) {
+        if (!isLoading && !hasRestoredInitialFocus && selectedSeriesForEpisodes == null && !showCategoryManager && pendingPinCategory == null && !showWatchHistoryDialog) {
             hasRestoredInitialFocus = true
             if (pagedItems.isNotEmpty() && lastFocusedItemId != null) {
                 runCatching { gridState.scrollToItem(targetItemIndex) }
-                delay(80)
-                runCatching { itemsEntryRequester.requestFocus() }
+                delay(100)
+                val req = vodItemRequesters[targetItemIndex] ?: itemsEntryRequester
+                if (!runCatching { req.requestFocus() }.isSuccess) {
+                    delay(50)
+                    runCatching { (vodItemRequesters[0] ?: itemsEntryRequester).requestFocus() }
+                }
             } else {
                 delay(80)
-                runCatching { initialContentFocusRequester.requestFocus() }
+                val currentCatIdx = fullCategories.indexOfFirst { it.id == selectedCategoryId }.coerceAtLeast(0)
+                val catReq = vodCatRequesters[currentCatIdx] ?: initialContentFocusRequester
+                runCatching { catReq.requestFocus() }
             }
         }
     }
@@ -391,10 +422,15 @@ private fun VodContent(
                     .onPreviewKeyEvent { ev ->
                         if (ev.type == KeyEventType.KeyDown) {
                             val moveToGrid = (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight)
-                            if (moveToGrid && pagedItems.isNotEmpty()) {
-                                if (runCatching { itemsEntryRequester.requestFocus() }.isSuccess) {
-                                    return@onPreviewKeyEvent true
+                            val blockExit = (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft)
+                            if (moveToGrid) {
+                                if (pagedItems.isNotEmpty()) {
+                                    focusGridItem()
                                 }
+                                return@onPreviewKeyEvent true
+                            }
+                            if (blockExit) {
+                                return@onPreviewKeyEvent true
                             }
                         }
                         false
@@ -473,17 +509,8 @@ private fun VodContent(
                                     requesters = vodCatRequesters,
                                     scope = scope,
                                     onExitTop = { runCatching { vodManageCatRequester.requestFocus() }.isSuccess },
-                                    onExitBottom = {
-                                        if (pagedItems.isNotEmpty()) {
-                                            runCatching { itemsEntryRequester.requestFocus() }.isSuccess
-                                        } else false
-                                    }
+                                    onExitBottom = { true }
                                 )
-                                .focusProperties {
-                                    if (pagedItems.isNotEmpty()) {
-                                        if (isAr) left = itemsEntryRequester else right = itemsEntryRequester
-                                    }
-                                }
                                 .tvFocusItem(
                                     focusRequester = itemReq,
                                     shape = RoundedCornerShape(10.dp),
@@ -495,8 +522,9 @@ private fun VodContent(
                                     onClick = {
                                         selectedCategoryId = cat.id
                                         focusedVodCatId = cat.id
+                                        onCategorySelected(cat.id)
                                         if (pagedItems.isNotEmpty()) {
-                                            runCatching { itemsEntryRequester.requestFocus() }
+                                            focusGridItem(0)
                                         }
                                     }
                                 )
@@ -533,10 +561,22 @@ private fun VodContent(
                     .onPreviewKeyEvent { ev ->
                         if (ev.type == KeyEventType.KeyDown) {
                             val backToCategories = (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft)
+                            val blockExit = (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight)
                             if (backToCategories) {
-                                if (runCatching { initialContentFocusRequester.requestFocus() }.isSuccess) {
+                                val currentCatIdx = fullCategories.indexOfFirst { it.id == selectedCategoryId }.coerceAtLeast(0)
+                                val catReq = vodCatRequesters[currentCatIdx] ?: (if (currentCatIdx == 0) initialContentFocusRequester else null)
+                                if (catReq != null && runCatching { catReq.requestFocus() }.isSuccess) {
                                     return@onPreviewKeyEvent true
                                 }
+                                scope.launch {
+                                    runCatching { catListState.scrollToItem(currentCatIdx) }
+                                    delay(40)
+                                    runCatching { (vodCatRequesters[currentCatIdx] ?: initialContentFocusRequester).requestFocus() }
+                                }
+                                return@onPreviewKeyEvent true
+                            }
+                            if (blockExit) {
+                                return@onPreviewKeyEvent true
                             }
                         }
                         false
@@ -698,9 +738,14 @@ private fun VodContent(
                                     items = pagedItems,
                                     key = { idx, item -> "${item.uniqueKey}_$idx" }
                                 ) { index, item ->
+                                    val itemReq = vodItemRequesters.getOrPut(index) { FocusRequester() }
+                                    val isTarget = index == targetItemIndex
+                                    Box(
+                                        modifier = Modifier.then(if (isTarget) Modifier.focusRequester(itemsEntryRequester) else Modifier)
+                                    ) {
                                     VodPosterCard(
                                         item = item,
-                                        focusRequester = if (index == targetItemIndex) itemsEntryRequester else null,
+                                        focusRequester = itemReq,
                                         onFocused = { onItemFocused(item.id) },
                                         onClick = {
                                             onItemFocused(item.id)
@@ -737,6 +782,7 @@ private fun VodContent(
                                             }
                                         }
                                     )
+                                    }
                                 }
                             }
                         }

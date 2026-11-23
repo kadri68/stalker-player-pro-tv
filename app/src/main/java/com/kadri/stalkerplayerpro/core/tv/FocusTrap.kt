@@ -128,22 +128,27 @@ fun Modifier.tvVerticalStepItem(
         Key.DirectionDown -> {
             if (index < totalCount - 1) {
                 val nextIdx = index + 1
+                val visibleItems = listState.layoutInfo.visibleItemsInfo
+                val isNextVisible = visibleItems.any { it.index == nextIdx }
                 val nextReq = requesters[nextIdx]
-                if (nextReq != null && runCatching { nextReq.requestFocus() }.isSuccess) {
-                    return@onPreviewKeyEvent true
+
+                if (isNextVisible && nextReq != null) {
+                    if (runCatching { nextReq.requestFocus() }.isSuccess) {
+                        return@onPreviewKeyEvent true
+                    }
                 }
+
                 scope.launch {
-                    val layoutInfo = listState.layoutInfo
-                    val visibleItems = layoutInfo.visibleItemsInfo
-                    val itemSize = visibleItems.lastOrNull()?.size ?: visibleItems.firstOrNull()?.size ?: 60
-                    val spacing = layoutInfo.mainAxisItemSpacing
-                    val delta = (itemSize + spacing).toFloat().coerceAtLeast(40f)
-                    runCatching { listState.scrollBy(delta) }
-                    delay(30)
+                    if (!isNextVisible) {
+                        runCatching { listState.animateScrollToItem(nextIdx) }
+                        delay(35)
+                    } else {
+                        delay(15)
+                    }
                     val req = requesters[nextIdx]
                     val success = req != null && runCatching { req.requestFocus() }.isSuccess
                     if (!success) {
-                        delay(30)
+                        delay(25)
                         runCatching { requesters[nextIdx]?.requestFocus() }
                     }
                 }
@@ -156,22 +161,27 @@ fun Modifier.tvVerticalStepItem(
         Key.DirectionUp -> {
             if (index > 0) {
                 val prevIdx = index - 1
+                val visibleItems = listState.layoutInfo.visibleItemsInfo
+                val isPrevVisible = visibleItems.any { it.index == prevIdx }
                 val prevReq = requesters[prevIdx]
-                if (prevReq != null && runCatching { prevReq.requestFocus() }.isSuccess) {
-                    return@onPreviewKeyEvent true
+
+                if (isPrevVisible && prevReq != null) {
+                    if (runCatching { prevReq.requestFocus() }.isSuccess) {
+                        return@onPreviewKeyEvent true
+                    }
                 }
+
                 scope.launch {
-                    val layoutInfo = listState.layoutInfo
-                    val visibleItems = layoutInfo.visibleItemsInfo
-                    val itemSize = visibleItems.firstOrNull()?.size ?: 60
-                    val spacing = layoutInfo.mainAxisItemSpacing
-                    val delta = (itemSize + spacing).toFloat().coerceAtLeast(40f)
-                    runCatching { listState.scrollBy(-delta) }
-                    delay(30)
+                    if (!isPrevVisible) {
+                        runCatching { listState.animateScrollToItem(prevIdx) }
+                        delay(35)
+                    } else {
+                        delay(15)
+                    }
                     val req = requesters[prevIdx]
                     val success = req != null && runCatching { req.requestFocus() }.isSuccess
                     if (!success) {
-                        delay(30)
+                        delay(25)
                         runCatching { requesters[prevIdx]?.requestFocus() }
                     }
                 }

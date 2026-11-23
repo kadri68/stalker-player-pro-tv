@@ -38,7 +38,7 @@ fun Modifier.tvFocusItem(
     unfocusedBorderColor: Color = Color.Transparent,
     focusedBackgroundColor: Color? = null,
     unfocusedBackgroundColor: Color = Color.Transparent,
-    borderWidth: Dp = 3.dp,
+    borderWidth: Dp = 2.dp,
     onFocusChangedCallback: ((Boolean) -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     onMenuClick: (() -> Unit)? = null,
@@ -53,7 +53,6 @@ fun Modifier.tvFocusItem(
     val activeBgColor = focusedBackgroundColor ?: MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
 
     val currentBorderColor = if (isFocused && enabled) activeBorderColor else unfocusedBorderColor
-    val currentBorderWidth = if (isFocused && enabled) borderWidth else if (unfocusedBorderColor != Color.Transparent) 1.dp else 0.dp
     val currentBgColor = if (isFocused && enabled) activeBgColor else unfocusedBackgroundColor
 
     val baseModifier = if (focusRequester != null) {
@@ -65,13 +64,7 @@ fun Modifier.tvFocusItem(
     baseModifier
         .clip(shape)
         .background(currentBgColor, shape)
-        .then(
-            if (currentBorderWidth > 0.dp) {
-                Modifier.border(BorderStroke(currentBorderWidth, currentBorderColor), shape)
-            } else {
-                Modifier
-            }
-        )
+        .border(BorderStroke(borderWidth, currentBorderColor), shape)
         .onFocusChanged { focusState ->
             val nowFocused = focusState.isFocused
             if (isFocused != nowFocused) {

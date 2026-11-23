@@ -308,6 +308,9 @@ private fun MainTvRoot(
     var lastFocusedLiveChannelId by remember { mutableStateOf<String?>(null) }
     var lastFocusedMovieId by remember { mutableStateOf<String?>(null) }
     var lastFocusedSeriesId by remember { mutableStateOf<String?>(null) }
+    var lastSelectedLiveCategoryId by remember { mutableStateOf("ALL") }
+    var lastSelectedMovieCategoryId by remember { mutableStateOf("ALL") }
+    var lastSelectedSeriesCategoryId by remember { mutableStateOf("ALL") }
 
     val tabRequesters = remember { List(TvTab.entries.size) { FocusRequester() } }
     val topBarScrollState = rememberScrollState()
@@ -602,6 +605,8 @@ private fun MainTvRoot(
                         parentalPin = settings.parentalPin,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
+                        initialSelectedCategoryId = lastSelectedLiveCategoryId,
+                        onCategorySelected = { catId -> lastSelectedLiveCategoryId = catId },
                         lastFocusedChannelId = lastFocusedLiveChannelId,
                         onChannelFocused = { chId -> lastFocusedLiveChannelId = chId },
                         onGoToPortals = { selectedTab = TvTab.PORTALS.index },
@@ -620,6 +625,8 @@ private fun MainTvRoot(
                         parentalPin = settings.parentalPin,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
+                        initialSelectedCategoryId = lastSelectedMovieCategoryId,
+                        onCategorySelected = { catId -> lastSelectedMovieCategoryId = catId },
                         lastFocusedItemId = lastFocusedMovieId,
                         onItemFocused = { itemId -> lastFocusedMovieId = itemId },
                         onGoToPortals = { selectedTab = TvTab.PORTALS.index },
@@ -638,6 +645,8 @@ private fun MainTvRoot(
                         parentalPin = settings.parentalPin,
                         isAr = isAr,
                         initialContentFocusRequester = contentFocusRequester,
+                        initialSelectedCategoryId = lastSelectedSeriesCategoryId,
+                        onCategorySelected = { catId -> lastSelectedSeriesCategoryId = catId },
                         lastFocusedItemId = lastFocusedSeriesId,
                         onItemFocused = { itemId -> lastFocusedSeriesId = itemId },
                         onGoToPortals = { selectedTab = TvTab.PORTALS.index },
