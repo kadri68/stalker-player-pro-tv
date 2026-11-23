@@ -2,13 +2,16 @@ package com.kadri.stalkerplayerpro.data.local
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 private val Context.dataStore by preferencesDataStore(name = "stalker_tv_settings")
 
@@ -71,7 +74,15 @@ class SettingsDataStore(private val context: Context) {
         val KEY_STARTUP_ENABLED = intPreferencesKey("startup_enabled")
     }
 
-    val settingsFlow: Flow<TvUserSettings> = context.dataStore.data.map { prefs ->
+    val settingsFlow: Flow<TvUserSettings> = context.dataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs ->
         val rawHistory = prefs[KEY_SEARCH_HISTORY].orEmpty()
         val parsedHistory = if (rawHistory.isBlank()) {
             emptyList()

@@ -45,7 +45,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -347,7 +346,7 @@ private fun VodContent(
             } else {
                 scope.launch {
                     runCatching { gridState.scrollToItem(targetIdx) }
-                    withFrameNanos { }
+                    delay(30)
                     val retryOk = runCatching { (vodItemRequesters[targetIdx] ?: itemsEntryRequester).requestFocus() }.isSuccess
                     if (!retryOk) {
                         runCatching { itemsEntryRequester.requestFocus() }

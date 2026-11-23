@@ -13,6 +13,15 @@ class StalkerApp : Application(), ImageLoaderFactory {
     val database: AppDatabase by lazy { AppDatabase.getInstance(this) }
     val settingsStore: SettingsDataStore by lazy { SettingsDataStore(this) }
 
+    override fun onCreate() {
+        super.onCreate()
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("StalkerApp", "FATAL CRASH on ${thread.name}: ${throwable.message}", throwable)
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {

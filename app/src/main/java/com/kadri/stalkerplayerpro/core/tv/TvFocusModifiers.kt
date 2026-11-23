@@ -65,7 +65,15 @@ fun Modifier.tvFocusItem(
     baseModifier
         .clip(shape)
         .background(currentBgColor, shape)
-        .border(BorderStroke(strokeWidth, currentBorderColor), shape)
+        .then(
+            if (isFocused && enabled) {
+                Modifier.border(BorderStroke(strokeWidth, activeBorderColor), shape)
+            } else if (unfocusedBorderColor != Color.Transparent) {
+                Modifier.border(BorderStroke(1.dp, unfocusedBorderColor), shape)
+            } else {
+                Modifier
+            }
+        )
         .onFocusChanged { focusState ->
             val nowFocused = focusState.isFocused
             if (isFocused != nowFocused) {
