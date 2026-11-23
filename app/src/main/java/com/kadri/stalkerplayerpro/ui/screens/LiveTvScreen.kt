@@ -248,7 +248,6 @@ private fun LiveTvContent(
     var channelForEpg by remember { mutableStateOf<ChannelItem?>(null) }
     var epgPrograms by remember { mutableStateOf<List<EpgProgram>>(emptyList()) }
     var isLoadingEpg by remember { mutableStateOf(false) }
-    var hasHandledStartupAutoPlay by remember(portal.id) { mutableStateOf(false) }
 
     val anyPopupOpen = showCategoryManager || pendingPinCategory != null || pendingPinActionLockToggle != null ||
             channelForMenu != null || channelForRename != null || channelForEpg != null || showLiveWatchHistoryDialog
@@ -332,13 +331,13 @@ private fun LiveTvContent(
     }
 
     LaunchedEffect(rawChannels.isNotEmpty(), settings.startupChannelEnabled) {
-        if (!hasHandledStartupAutoPlay &&
+        if (!com.kadri.stalkerplayerpro.MainActivity.hasHandledStartupAutoPlayThisSession &&
             settings.startupChannelEnabled &&
             settings.startupChannelPortalId == portal.id &&
             settings.startupChannelId.isNotBlank() &&
             rawChannels.isNotEmpty()
         ) {
-            hasHandledStartupAutoPlay = true
+            com.kadri.stalkerplayerpro.MainActivity.hasHandledStartupAutoPlayThisSession = true
             val targetChannel = rawChannels.find { it.id == settings.startupChannelId }
             if (targetChannel != null) {
                 val chIdx = rawChannels.indexOf(targetChannel)

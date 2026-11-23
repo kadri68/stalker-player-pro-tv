@@ -105,6 +105,8 @@ class MainActivity : ComponentActivity() {
         private const val ACTION_PIP_CLOSE = "com.kadri.stalkerplayerpro.ACTION_PIP_CLOSE"
         @Volatile
         var isLaunchingExternalPicker: Boolean = false
+        @Volatile
+        var hasHandledStartupAutoPlayThisSession: Boolean = false
     }
 
     private var isInPipModeState by mutableStateOf(false)

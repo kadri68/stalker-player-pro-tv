@@ -46,6 +46,8 @@ fun Modifier.tvFocusItem(
 ): Modifier = composed {
     var isFocused by remember { mutableStateOf(false) }
     var longPressHandled by remember { mutableStateOf(false) }
+    var isKeyDownOnThisItem by remember { mutableStateOf(false) }
+    var keyDownStartTime by remember { mutableStateOf(0L) }
     val interactionSource = remember { MutableInteractionSource() }
     val extraColors = LocalTvExtraColors.current
 
@@ -69,6 +71,10 @@ fun Modifier.tvFocusItem(
             val nowFocused = focusState.isFocused
             if (isFocused != nowFocused) {
                 isFocused = nowFocused
+                if (!nowFocused) {
+                    isKeyDownOnThisItem = false
+                    longPressHandled = false
+                }
                 onFocusChangedCallback?.invoke(nowFocused)
             }
         }
@@ -94,17 +100,23 @@ fun Modifier.tvFocusItem(
                             val repeat = keyEvent.nativeKeyEvent.repeatCount
                             if (repeat == 0) {
                                 longPressHandled = false
-                            } else if (repeat >= 4 && !longPressHandled && onLongClick != null) {
-                                longPressHandled = true
-                                onLongClick.invoke()
+                                isKeyDownOnThisItem = true
+                                keyDownStartTime = System.currentTimeMillis()
+                            } else if (!longPressHandled && onLongClick != null) {
+                                val elapsed = System.currentTimeMillis() - keyDownStartTime
+                                if (repeat >= 10 || (elapsed >= 700L && repeat >= 4)) {
+                                    longPressHandled = true
+                                    onLongClick.invoke()
+                                }
                             }
                             true
                         }
 
                         KeyEventType.KeyUp -> {
-                            if (!longPressHandled) {
+                            if (isKeyDownOnThisItem && !longPressHandled) {
                                 onClick()
                             }
+                            isKeyDownOnThisItem = false
                             longPressHandled = false
                             true
                         }

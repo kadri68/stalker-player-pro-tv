@@ -437,11 +437,18 @@ fun SettingsScreen(
         }
 
         if (showExportLocationDialog) {
+            val destRequesters = remember(exportDestinations.size) {
+                List(exportDestinations.size) { FocusRequester() }
+            }
+            val cancelBtnRequester = remember { FocusRequester() }
+            val closeHeaderRequester = remember { FocusRequester() }
+
             TvModalDialog(
                 title = if (isAr) "تحديد مسار حفظ النسخة الاحتياطية" else "Choose Backup Save Location",
                 onDismiss = { showExportLocationDialog = false },
                 maxWidth = 580.dp,
                 restoreFocusRequester = rowReq(6),
+                closeBtnRequester = closeHeaderRequester,
                 scrollableBody = true,
                 footer = {
                     Row(
@@ -450,7 +457,20 @@ fun SettingsScreen(
                     ) {
                         Box(
                             modifier = Modifier
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    when (ev.key) {
+                                        Key.DirectionUp -> {
+                                            runCatching {
+                                                (destRequesters.lastOrNull() ?: closeHeaderRequester).requestFocus()
+                                            }.isSuccess
+                                        }
+                                        Key.DirectionDown -> true
+                                        else -> false
+                                    }
+                                }
                                 .tvFocusItem(
+                                    focusRequester = cancelBtnRequester,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                     onClick = { showExportLocationDialog = false }
@@ -494,11 +514,33 @@ fun SettingsScreen(
                     )
 
                     exportDestinations.forEachIndexed { dIdx, dest ->
+                        val itemReq = if (dIdx == 0) firstReq else (destRequesters.getOrNull(dIdx) ?: remember { FocusRequester() })
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    when (ev.key) {
+                                        Key.DirectionDown -> {
+                                            if (dIdx < exportDestinations.size - 1) {
+                                                runCatching { destRequesters[dIdx + 1].requestFocus() }.isSuccess
+                                            } else {
+                                                runCatching { cancelBtnRequester.requestFocus() }.isSuccess
+                                            }
+                                        }
+                                        Key.DirectionUp -> {
+                                            if (dIdx > 0) {
+                                                val prevReq = if (dIdx - 1 == 0) firstReq else destRequesters[dIdx - 1]
+                                                runCatching { prevReq.requestFocus() }.isSuccess
+                                            } else {
+                                                runCatching { closeHeaderRequester.requestFocus() }.isSuccess
+                                            }
+                                        }
+                                        else -> false
+                                    }
+                                }
                                 .tvFocusItem(
-                                    focusRequester = if (dIdx == 0) firstReq else null,
+                                    focusRequester = itemReq,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                                     focusedBackgroundColor = MaterialTheme.colorScheme.primary,
@@ -556,11 +598,20 @@ fun SettingsScreen(
         }
 
         if (showBackupFilePickerDialog) {
+            val fileRequesters = remember(availableBackupFiles.size) {
+                List(availableBackupFiles.size) { FocusRequester() }
+            }
+            val browseBtnRequester = remember { FocusRequester() }
+            val closeFooterRequester = remember { FocusRequester() }
+            val closeHeaderRequester = remember { FocusRequester() }
+            var firstItemRef: FocusRequester? by remember { mutableStateOf(null) }
+
             TvModalDialog(
                 title = if (isAr) "اختر ملف النسخة الاحتياطية" else "Select Backup File",
                 onDismiss = { showBackupFilePickerDialog = false },
                 maxWidth = 580.dp,
                 restoreFocusRequester = rowReq(7),
+                closeBtnRequester = closeHeaderRequester,
                 scrollableBody = true,
                 footer = {
                     Row(
@@ -569,7 +620,27 @@ fun SettingsScreen(
                     ) {
                         Box(
                             modifier = Modifier
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    when (ev.key) {
+                                        Key.DirectionUp -> {
+                                            if (availableBackupFiles.isNotEmpty()) {
+                                                val lastIdx = availableBackupFiles.lastIndex
+                                                val lastReq = if (lastIdx == 0) firstItemRef else fileRequesters.getOrNull(lastIdx)
+                                                runCatching { (lastReq ?: closeHeaderRequester).requestFocus() }.isSuccess
+                                            } else {
+                                                runCatching { closeHeaderRequester.requestFocus() }.isSuccess
+                                            }
+                                        }
+                                        Key.DirectionLeft, Key.DirectionRight -> {
+                                            runCatching { closeFooterRequester.requestFocus() }.isSuccess
+                                        }
+                                        Key.DirectionDown -> true
+                                        else -> false
+                                    }
+                                }
                                 .tvFocusItem(
+                                    focusRequester = browseBtnRequester,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.25f),
                                     focusedBackgroundColor = MaterialTheme.colorScheme.primary,
@@ -596,7 +667,27 @@ fun SettingsScreen(
                         }
                         Box(
                             modifier = Modifier
+                                .onPreviewKeyEvent { ev ->
+                                    if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    when (ev.key) {
+                                        Key.DirectionUp -> {
+                                            if (availableBackupFiles.isNotEmpty()) {
+                                                val lastIdx = availableBackupFiles.lastIndex
+                                                val lastReq = if (lastIdx == 0) firstItemRef else fileRequesters.getOrNull(lastIdx)
+                                                runCatching { (lastReq ?: closeHeaderRequester).requestFocus() }.isSuccess
+                                            } else {
+                                                runCatching { closeHeaderRequester.requestFocus() }.isSuccess
+                                            }
+                                        }
+                                        Key.DirectionLeft, Key.DirectionRight -> {
+                                            runCatching { browseBtnRequester.requestFocus() }.isSuccess
+                                        }
+                                        Key.DirectionDown -> true
+                                        else -> false
+                                    }
+                                }
                                 .tvFocusItem(
+                                    focusRequester = closeFooterRequester,
                                     shape = RoundedCornerShape(10.dp),
                                     unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                     onClick = { showBackupFilePickerDialog = false }
@@ -608,6 +699,13 @@ fun SettingsScreen(
                     }
                 }
             ) { firstReq ->
+                firstItemRef = firstReq
+                LaunchedEffect(availableBackupFiles.isEmpty()) {
+                    if (availableBackupFiles.isEmpty()) {
+                        kotlinx.coroutines.delay(80)
+                        runCatching { browseBtnRequester.requestFocus() }
+                    }
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (availableBackupFiles.isEmpty()) {
                         Column(
@@ -635,11 +733,33 @@ fun SettingsScreen(
                             val sdf = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US) }
                             val dateStr = remember(bFile) { sdf.format(Date(bFile.lastModified())) }
                             val sizeKb = remember(bFile) { (bFile.length() / 1024L).coerceAtLeast(1L) }
+                            val itemReq = if (fIdx == 0) firstReq else (fileRequesters.getOrNull(fIdx) ?: remember { FocusRequester() })
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .onPreviewKeyEvent { ev ->
+                                        if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                        when (ev.key) {
+                                            Key.DirectionDown -> {
+                                                if (fIdx < availableBackupFiles.size - 1) {
+                                                    runCatching { fileRequesters[fIdx + 1].requestFocus() }.isSuccess
+                                                } else {
+                                                    runCatching { browseBtnRequester.requestFocus() }.isSuccess
+                                                }
+                                            }
+                                            Key.DirectionUp -> {
+                                                if (fIdx > 0) {
+                                                    val prevReq = if (fIdx - 1 == 0) firstReq else fileRequesters[fIdx - 1]
+                                                    runCatching { prevReq.requestFocus() }.isSuccess
+                                                } else {
+                                                    runCatching { closeHeaderRequester.requestFocus() }.isSuccess
+                                                }
+                                            }
+                                            else -> false
+                                        }
+                                    }
                                     .tvFocusItem(
-                                        focusRequester = if (fIdx == 0) firstReq else null,
+                                        focusRequester = itemReq,
                                         shape = RoundedCornerShape(10.dp),
                                         unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant,
                                         focusedBackgroundColor = MaterialTheme.colorScheme.primary,

@@ -559,7 +559,7 @@ private fun VodContent(
                     .weight(1f)
                     .fillMaxHeight()
                     .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-                    .onPreviewKeyEvent { ev ->
+                    .onKeyEvent { ev ->
                         if (ev.type == KeyEventType.KeyDown) {
                             val backToCategories = (isAr && ev.key == Key.DirectionRight) || (!isAr && ev.key == Key.DirectionLeft)
                             val blockExit = (isAr && ev.key == Key.DirectionLeft) || (!isAr && ev.key == Key.DirectionRight)
@@ -567,17 +567,17 @@ private fun VodContent(
                                 val currentCatIdx = fullCategories.indexOfFirst { it.id == selectedCategoryId }.coerceAtLeast(0)
                                 val catReq = vodCatRequesters[currentCatIdx] ?: (if (currentCatIdx == 0) initialContentFocusRequester else null)
                                 if (catReq != null && runCatching { catReq.requestFocus() }.isSuccess) {
-                                    return@onPreviewKeyEvent true
+                                    return@onKeyEvent true
                                 }
                                 scope.launch {
                                     runCatching { catListState.scrollToItem(currentCatIdx) }
                                     delay(40)
                                     runCatching { (vodCatRequesters[currentCatIdx] ?: initialContentFocusRequester).requestFocus() }
                                 }
-                                return@onPreviewKeyEvent true
+                                return@onKeyEvent true
                             }
                             if (blockExit) {
-                                return@onPreviewKeyEvent true
+                                return@onKeyEvent true
                             }
                         }
                         false
@@ -733,18 +733,9 @@ private fun VodContent(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .onPreviewKeyEvent { ev ->
+                                    .onKeyEvent { ev ->
                                         if (ev.type == KeyEventType.KeyDown && ev.key == Key.DirectionUp) {
-                                            val visibleInfo = gridState.layoutInfo.visibleItemsInfo
-                                            val firstItem = visibleInfo.firstOrNull()
-                                            if (firstItem != null && firstItem.index == 0) {
-                                                val firstRowY = firstItem.offset.y
-                                                val currentItemInfo = visibleInfo.firstOrNull { it.index == targetItemIndex }
-                                                if (currentItemInfo != null && currentItemInfo.offset.y == firstRowY) {
-                                                    return@onPreviewKeyEvent runCatching { vodTopBarRequesters[0].requestFocus() }.isSuccess
-                                                }
-                                            }
-                                            false
+                                            runCatching { vodTopBarRequesters[0].requestFocus() }.isSuccess
                                         } else false
                                     }
                             ) {
@@ -752,11 +743,12 @@ private fun VodContent(
                                     items = pagedItems,
                                     key = { idx, item -> "${item.uniqueKey}_$idx" }
                                 ) { index, item ->
-                                    val itemReq = vodItemRequesters.getOrPut(index) { FocusRequester() }
-                                    val isTarget = index == targetItemIndex
-                                    Box(
-                                        modifier = Modifier.then(if (isTarget) Modifier.focusRequester(itemsEntryRequester) else Modifier)
-                                    ) {
+                                    val itemReq = vodItemRequesters.getOrPut(index) {
+                                        if (index == 0) itemsEntryRequester else FocusRequester()
+                                    }
+                                    if (index == 0 && !vodItemRequesters.containsKey(0)) {
+                                        vodItemRequesters[0] = itemsEntryRequester
+                                    }
                                     VodPosterCard(
                                         item = item,
                                         focusRequester = itemReq,
@@ -796,7 +788,6 @@ private fun VodContent(
                                             }
                                         }
                                     )
-                                    }
                                 }
                             }
                         }

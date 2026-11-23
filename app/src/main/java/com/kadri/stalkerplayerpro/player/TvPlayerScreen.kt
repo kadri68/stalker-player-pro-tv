@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -971,6 +972,22 @@ fun TvPlayerScreen(
                         icon = if (isCurrentFavorite) Icons.Default.Star else Icons.Default.StarOutline
                     )
                 )
+                if (currentRequest.contentType == "LIVE") {
+                    val isStartupChannel = liveSettings.startupChannelEnabled &&
+                            liveSettings.startupChannelPortalId == currentRequest.portal.id &&
+                            liveSettings.startupChannelId == currentRequest.itemId
+                    add(
+                        TvMenuOption(
+                            id = "startup_toggle",
+                            label = if (isStartupChannel) {
+                                if (isAr) "إزالة القناة من بدء التشغيل" else "Remove from Startup Channel"
+                            } else {
+                                if (isAr) "تعيين القناة في بدء التشغيل" else "Set as Startup Channel"
+                            },
+                            icon = if (isStartupChannel) Icons.Default.CheckCircle else Icons.Default.PlayArrow
+                        )
+                    )
+                }
                 add(
                     TvMenuOption(
                         id = "embedded_subs",
@@ -1032,6 +1049,26 @@ fun TvPlayerScreen(
                         }
                         "watch_history" -> showHistoryDrawer = true
                         "fav_toggle" -> toggleCurrentFavorite()
+                        "startup_toggle" -> scope.launch {
+                            val isStartupChannel = liveSettings.startupChannelEnabled &&
+                                    liveSettings.startupChannelPortalId == currentRequest.portal.id &&
+                                    liveSettings.startupChannelId == currentRequest.itemId
+                            if (isStartupChannel) {
+                                settingsStore.setStartupChannel(0L, "", false)
+                                Toast.makeText(
+                                    context,
+                                    if (isAr) "تمت إزالة القناة من بدء التشغيل" else "Removed from startup channel",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                settingsStore.setStartupChannel(currentRequest.portal.id, currentRequest.itemId, true)
+                                Toast.makeText(
+                                    context,
+                                    if (isAr) "تم تعيين القناة في بدء التشغيل" else "Set as startup channel",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
                         "embedded_subs" -> showEmbeddedSubtitlesDialog = true
                         "sub_search" -> showSubtitleSearchDialog = true
                         "sub_style" -> showSubtitleStyleDialog = true

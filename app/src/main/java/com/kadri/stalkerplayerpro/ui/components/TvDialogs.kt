@@ -206,6 +206,7 @@ fun TvActionMenuDialog(
     val menuListState = rememberLazyListState()
     val closeBtnRequester = remember { FocusRequester() }
     val optRequesters = remember(options.size) { mutableStateMapOf<Int, FocusRequester>() }
+    val dialogOpenTime = remember { System.currentTimeMillis() }
 
     TvModalDialog(
         title = title,
@@ -246,8 +247,10 @@ fun TvActionMenuDialog(
                             shape = RoundedCornerShape(10.dp),
                             unfocusedBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                             onClick = {
-                                onDismiss()
-                                onSelect(option)
+                                if (System.currentTimeMillis() - dialogOpenTime >= 400L) {
+                                    onDismiss()
+                                    onSelect(option)
+                                }
                             }
                         )
                         .padding(horizontal = 14.dp, vertical = 10.dp),
