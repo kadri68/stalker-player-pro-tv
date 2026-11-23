@@ -542,7 +542,6 @@ private fun LiveTvContent(
                         val isLocked = cat.id in lockedIdSet && cat.id !in unlockedSessionGroups
                         val canLock = cat.id != "ALL" && cat.id != "FAV"
                         val itemReq = if (index == 0) initialContentFocusRequester else catRequesters.getOrPut(index) { FocusRequester() }
-                        if (index == 0) catRequesters[0] = initialContentFocusRequester
 
                         Row(
                             modifier = Modifier
@@ -811,7 +810,6 @@ private fun LiveTvContent(
                             ) { index, channel ->
                                 val isFav = channel.id in favIdSet
                                 val chReq = if (index == 0) channelsEntryRequester else channelRequesters.getOrPut(index) { FocusRequester() }
-                                if (index == 0) channelRequesters[0] = channelsEntryRequester
                                 Box(
                                     modifier = Modifier
                                         .tvVerticalStepItem(

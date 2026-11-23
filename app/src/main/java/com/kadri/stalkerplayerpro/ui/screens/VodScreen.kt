@@ -744,7 +744,6 @@ private fun VodContent(
                                     key = { idx, item -> "${item.uniqueKey}_$idx" }
                                 ) { index, item ->
                                     val itemReq = if (index == 0) itemsEntryRequester else vodItemRequesters.getOrPut(index) { FocusRequester() }
-                                    if (index == 0) vodItemRequesters[0] = itemsEntryRequester
                                     VodPosterCard(
                                         item = item,
                                         focusRequester = itemReq,

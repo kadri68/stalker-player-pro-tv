@@ -96,6 +96,7 @@ import com.kadri.stalkerplayerpro.ui.screens.GlobalFavoritesScreen
 import com.kadri.stalkerplayerpro.ui.screens.LiveTvScreen
 import com.kadri.stalkerplayerpro.ui.screens.PortalsScreen
 import com.kadri.stalkerplayerpro.ui.screens.SettingsScreen
+import com.kadri.stalkerplayerpro.ui.screens.TvIntroOverlay
 import com.kadri.stalkerplayerpro.ui.screens.TvIntroScreen
 import com.kadri.stalkerplayerpro.ui.screens.VodScreen
 import kotlinx.coroutines.delay
@@ -144,7 +145,7 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        val app = (application as? StalkerApp) ?: return
+        val app = application as StalkerApp
 
         setContent {
             val context = LocalContext.current
@@ -152,34 +153,26 @@ class MainActivity : ComponentActivity() {
             val settings by app.settingsStore.settingsFlow.collectAsState(initial = TvUserSettings())
             val isAr = settings.language == "ar"
             val layoutDir = if (isAr) LayoutDirection.Rtl else LayoutDirection.Ltr
-            var showIntro by remember { mutableStateOf(true) }
 
             CompositionLocalProvider(LocalLayoutDirection provides layoutDir) {
                 StalkerTvTheme(
                     themeId = AppThemeId.fromId(settings.themeId),
                     fontScale = TvFontScale.fromId(settings.fontScaleId, isTvDefault = isTv)
                 ) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        MainTvRoot(
-                            app = app,
-                            settings = settings,
-                            isAr = isAr,
-                            isTv = isTv,
-                            isInPipMode = isInPipModeState,
-                            forceStopSignal = forceStopPlaybackSignal,
-                            isIntroShowing = showIntro,
-                            onPlayerActiveChanged = { active ->
-                                isPlayerActiveForPip = active
-                                updateAutoPipParams(active)
-                            },
-                            onEnterPip = { requestPipMode() },
-                            onFinishApp = { finishAndRemoveTask() }
-                        )
-
-                        if (showIntro) {
-                            TvIntroScreen(onFinished = { showIntro = false })
-                        }
-                    }
+                    MainTvRoot(
+                        app = app,
+                        settings = settings,
+                        isAr = isAr,
+                        isTv = isTv,
+                        isInPipMode = isInPipModeState,
+                        forceStopSignal = forceStopPlaybackSignal,
+                        onPlayerActiveChanged = { active ->
+                            isPlayerActiveForPip = active
+                            updateAutoPipParams(active)
+                        },
+                        onEnterPip = { requestPipMode() },
+                        onFinishApp = { finishAndRemoveTask() }
+                    )
                 }
             }
         }
@@ -301,7 +294,6 @@ private fun MainTvRoot(
     isTv: Boolean,
     isInPipMode: Boolean,
     forceStopSignal: Int,
-    isIntroShowing: Boolean = false,
     onPlayerActiveChanged: (Boolean) -> Unit,
     onEnterPip: () -> Unit,
     onFinishApp: () -> Unit
@@ -313,6 +305,7 @@ private fun MainTvRoot(
     var activePlayback by remember { mutableStateOf<PlaybackRequest?>(null) }
     var headerClock by remember { mutableStateOf(LocaleUtils.formatClock()) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
+    var showIntro by remember { mutableStateOf(true) }
 
     var lastFocusedPortalId by remember { mutableLongStateOf(-1L) }
     var lastFocusedLiveChannelId by remember { mutableStateOf<String?>(null) }
@@ -322,13 +315,6 @@ private fun MainTvRoot(
     val tabRequesters = remember { List(TvTab.entries.size) { FocusRequester() } }
     val topBarScrollState = rememberScrollState()
     val contentFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(isIntroShowing) {
-        if (!isIntroShowing) {
-            delay(50)
-            runCatching { tabRequesters[selectedTab].requestFocus() }
-        }
-    }
 
     LaunchedEffect(focusedTabIndex) {
         if (focusedTabIndex >= 0) {
@@ -395,7 +381,10 @@ private fun MainTvRoot(
     }
 
     BackHandler(enabled = !showExitConfirmDialog) {
-        if (selectedTab != TvTab.PORTALS.index) {
+        if (showIntro) {
+            showIntro = false
+            runCatching { tabRequesters[selectedTab].requestFocus() }
+        } else if (selectedTab != TvTab.PORTALS.index) {
             selectedTab = TvTab.PORTALS.index
             runCatching { tabRequesters[TvTab.PORTALS.index].requestFocus() }
         } else {
@@ -751,6 +740,15 @@ private fun MainTvRoot(
                     }
                 }
             }
+        }
+
+        if (showIntro) {
+            TvIntroOverlay(
+                onFinished = {
+                    showIntro = false
+                    runCatching { tabRequesters[selectedTab].requestFocus() }
+                }
+            )
         }
     }
 }

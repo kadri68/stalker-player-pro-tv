@@ -1,6 +1,5 @@
 package com.kadri.stalkerplayerpro.ui.screens
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,13 +34,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 @Composable
-fun TvIntroScreen(
+fun TvIntroOverlay(
     onFinished: () -> Unit
 ) {
-    BackHandler {
-        onFinished()
-    }
-
     LaunchedEffect(Unit) {
         delay(2500)
         onFinished()
@@ -65,7 +60,7 @@ fun TvIntroScreen(
             // TV Logo Emblem
             Box(
                 modifier = Modifier
-                    .size(100.dp)
+                    .size(96.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
@@ -79,11 +74,11 @@ fun TvIntroScreen(
                     imageVector = Icons.Default.LiveTv,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(54.dp)
+                    modifier = Modifier.size(52.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(26.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text(
                 text = "مرحبا بكم في تطبيق",
@@ -118,7 +113,7 @@ fun TvIntroScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             CircularProgressIndicator(
                 modifier = Modifier.size(28.dp),
@@ -127,4 +122,9 @@ fun TvIntroScreen(
             )
         }
     }
+}
+
+@Composable
+fun TvIntroScreen(onFinished: () -> Unit) {
+    TvIntroOverlay(onFinished = onFinished)
 }
