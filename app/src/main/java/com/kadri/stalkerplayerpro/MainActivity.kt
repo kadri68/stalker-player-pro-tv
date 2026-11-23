@@ -96,8 +96,6 @@ import com.kadri.stalkerplayerpro.ui.screens.GlobalFavoritesScreen
 import com.kadri.stalkerplayerpro.ui.screens.LiveTvScreen
 import com.kadri.stalkerplayerpro.ui.screens.PortalsScreen
 import com.kadri.stalkerplayerpro.ui.screens.SettingsScreen
-import com.kadri.stalkerplayerpro.ui.screens.TvIntroOverlay
-import com.kadri.stalkerplayerpro.ui.screens.TvIntroScreen
 import com.kadri.stalkerplayerpro.ui.screens.VodScreen
 import kotlinx.coroutines.delay
 
@@ -305,7 +303,6 @@ private fun MainTvRoot(
     var activePlayback by remember { mutableStateOf<PlaybackRequest?>(null) }
     var headerClock by remember { mutableStateOf(LocaleUtils.formatClock()) }
     var showExitConfirmDialog by remember { mutableStateOf(false) }
-    var showIntro by remember { mutableStateOf(true) }
 
     var lastFocusedPortalId by remember { mutableLongStateOf(-1L) }
     var lastFocusedLiveChannelId by remember { mutableStateOf<String?>(null) }
@@ -381,10 +378,7 @@ private fun MainTvRoot(
     }
 
     BackHandler(enabled = !showExitConfirmDialog) {
-        if (showIntro) {
-            showIntro = false
-            runCatching { tabRequesters[selectedTab].requestFocus() }
-        } else if (selectedTab != TvTab.PORTALS.index) {
+        if (selectedTab != TvTab.PORTALS.index) {
             selectedTab = TvTab.PORTALS.index
             runCatching { tabRequesters[TvTab.PORTALS.index].requestFocus() }
         } else {
@@ -740,15 +734,6 @@ private fun MainTvRoot(
                     }
                 }
             }
-        }
-
-        if (showIntro) {
-            TvIntroOverlay(
-                onFinished = {
-                    showIntro = false
-                    runCatching { tabRequesters[selectedTab].requestFocus() }
-                }
-            )
         }
     }
 }
