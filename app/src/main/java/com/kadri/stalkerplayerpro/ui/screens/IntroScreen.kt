@@ -5,7 +5,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -13,15 +12,11 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,16 +35,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kadri.stalkerplayerpro.BuildConfig
 import com.kadri.stalkerplayerpro.core.tv.LtrText
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * شاشة الترحيب (Intro) فائقة الخفة على معالج وذاكرة أجهزة التلفاز (Android TV).
+ * شاشة الترحيب (Intro) فائقة الخفة على معالج وذاكرة أجهزة التلفاز (Android TV) والهواتف.
  * - مدة العرض: 5 ثوانٍ بالضبط (5000 ميلي ثانية).
  * - انتقال ألفا انسيابي هادئ دون أي ضغط على الذاكرة أو GPU.
- * - تخطي سلس وفوري عند الضغط على أي زر في الريموت كنترول أو زر الرجوع.
+ * - تخطي سلس وفوري عند الضغط على أي زر في الريموت كنترول أو زر الرجوع أو اللمس.
  * - حماية دفاعية تمنع حدوث أي Crash أو ANR أو تجمد.
  */
 @Composable
@@ -125,7 +119,7 @@ fun IntroScreen(
         Column(
             modifier = Modifier
                 .graphicsLayer { alpha = contentAlpha.value }
-                .padding(horizontal = 48.dp, vertical = 24.dp),
+                .padding(horizontal = 32.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -143,43 +137,18 @@ fun IntroScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 2. IPTV STALKER مع شارة رقم الإصدار المحدث
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                LtrText(
-                    text = "IPTV STALKER",
-                    style = MaterialTheme.typography.headlineLarge.copy(
-                        fontSize = 42.sp,
-                        lineHeight = 50.sp,
-                        letterSpacing = 2.sp
-                    ),
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.ExtraBold
-                )
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Surface(
-                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)
-                    )
-                ) {
-                    LtrText(
-                        text = "v${BuildConfig.VERSION_NAME}",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
+            // 2. IPTV STALKER
+            LtrText(
+                text = "IPTV STALKER",
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontSize = 42.sp,
+                    lineHeight = 50.sp,
+                    letterSpacing = 2.sp
+                ),
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.ExtraBold,
+                textAlign = TextAlign.Center
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -197,9 +166,9 @@ fun IntroScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 4. اتمنى لكم فرجه ممتعه
+            // 4. يتمنى لكم فرجة ممتعة
             Text(
-                text = "اتمنى لكم فرجه ممتعه",
+                text = "يتمنى لكم فرجة ممتعة",
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontSize = 20.sp,
                     lineHeight = 28.sp
