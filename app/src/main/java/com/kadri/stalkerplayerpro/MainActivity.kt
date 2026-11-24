@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +94,7 @@ import com.kadri.stalkerplayerpro.player.TvPlayerScreen
 import com.kadri.stalkerplayerpro.ui.components.TvModalDialog
 import com.kadri.stalkerplayerpro.ui.screens.BUILTIN_FREE_AR_M3U_URL
 import com.kadri.stalkerplayerpro.ui.screens.GlobalFavoritesScreen
+import com.kadri.stalkerplayerpro.ui.screens.IntroScreen
 import com.kadri.stalkerplayerpro.ui.screens.LiveTvScreen
 import com.kadri.stalkerplayerpro.ui.screens.PortalsScreen
 import com.kadri.stalkerplayerpro.ui.screens.SettingsScreen
@@ -159,20 +161,30 @@ class MainActivity : ComponentActivity() {
                     themeId = AppThemeId.fromId(settings.themeId),
                     fontScale = TvFontScale.fromId(settings.fontScaleId, isTvDefault = isTv)
                 ) {
-                    MainTvRoot(
-                        app = app,
-                        settings = settings,
-                        isAr = isAr,
-                        isTv = isTv,
-                        isInPipMode = isInPipModeState,
-                        forceStopSignal = forceStopPlaybackSignal,
-                        onPlayerActiveChanged = { active ->
-                            isPlayerActiveForPip = active
-                            updateAutoPipParams(active)
-                        },
-                        onEnterPip = { requestPipMode() },
-                        onFinishApp = { finishAndRemoveTask() }
-                    )
+                    var isIntroVisible by rememberSaveable {
+                        mutableStateOf(!isInPipModeState && !isPlayerActiveForPip)
+                    }
+
+                    if (isIntroVisible) {
+                        IntroScreen(
+                            onFinish = { isIntroVisible = false }
+                        )
+                    } else {
+                        MainTvRoot(
+                            app = app,
+                            settings = settings,
+                            isAr = isAr,
+                            isTv = isTv,
+                            isInPipMode = isInPipModeState,
+                            forceStopSignal = forceStopPlaybackSignal,
+                            onPlayerActiveChanged = { active ->
+                                isPlayerActiveForPip = active
+                                updateAutoPipParams(active)
+                            },
+                            onEnterPip = { requestPipMode() },
+                            onFinishApp = { finishAndRemoveTask() }
+                        )
+                    }
                 }
             }
         }

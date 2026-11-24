@@ -29,7 +29,7 @@ object SubtitleRepository {
 
     private const val DEFAULT_OS_HOST = "api.opensubtitles.com"
     private const val SUBDL_BASE = "https://api.subdl.com/api/v1/subtitles"
-    private const val USER_AGENT = "StalkerPlayerProTV v2.2.6"
+    private const val USER_AGENT = "StalkerPlayerProTV v2.2.7"
 
     @Volatile
     var lastSearchDiagnostic: String = ""
